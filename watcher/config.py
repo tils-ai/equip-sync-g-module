@@ -116,6 +116,10 @@ poll_interval = 5
 [download]
 ; PDF 다운로드 폴더 (비워두면 ./download)
 dir =
+
+[gui]
+; system | light | dark
+appearance = system
 """
 
 # config.ini가 없으면 기본값으로 생성
@@ -306,6 +310,26 @@ def save_value(section: str, key: str, value: str):
     _ini.set(section, key, value)
     with open(INI_PATH, "w", encoding="utf-8") as f:
         _ini.write(f)
+
+
+def get_appearance() -> str:
+    p = configparser.ConfigParser()
+    p.read(INI_PATH, encoding="utf-8")
+    value = p.get("gui", "appearance", fallback="system").strip().lower()
+    return value if value in {"system", "light", "dark"} else "system"
+
+
+def set_appearance(value: str) -> None:
+    value = (value or "system").strip().lower()
+    if value not in {"system", "light", "dark"}:
+        value = "system"
+    p = configparser.ConfigParser()
+    p.read(INI_PATH, encoding="utf-8")
+    if not p.has_section("gui"):
+        p.add_section("gui")
+    p.set("gui", "appearance", value)
+    with open(INI_PATH, "w", encoding="utf-8") as f:
+        p.write(f)
 
 
 def reload():

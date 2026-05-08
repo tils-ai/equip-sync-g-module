@@ -15,21 +15,27 @@ if sys.platform == "win32":
 import customtkinter as ctk
 
 import config
+import fonts
 
 logger = logging.getLogger(__name__)
 
-# 컬러 팔레트
-_BG = "#2C2C2E"
-_FRAME_BG = "#3A3A3C"
-_TEXT = "#E0DDD9"
-_TEXT_MUTED = "#8E8A85"
-_GREEN = "#8BC5A3"
-_CORAL = "#D4897A"
-_BLUE = "#7A9EB8"
-_GRAY = "#5A5856"
-_LOG_BG = "#333335"
-_LOG_TEXT = "#D0CCC8"
-_FONT = "Malgun Gothic"
+# Pretendard 등록 (멱등)
+fonts.register()
+
+# 컬러 팔레트 (light, dark) — CTk가 appearance_mode에 따라 자동 선택
+_BG = ("#F5F5F7", "#2C2C2E")
+_FRAME_BG = ("#FFFFFF", "#3A3A3C")
+_TEXT = ("#1F1F1F", "#E0DDD9")
+_TEXT_MUTED = ("#6E6E73", "#8E8A85")
+_GREEN = ("#34A853", "#8BC5A3")
+_CORAL = ("#E14B3D", "#D4897A")
+_BLUE = ("#3B6EA5", "#7A9EB8")
+_GRAY = ("#C7C7CC", "#5A5856")
+_LOG_BG = ("#F2F2F7", "#333335")
+_LOG_TEXT = ("#1F1F1F", "#D0CCC8")
+_FONT = fonts.family()
+_APPEARANCE_LABELS = {"system": "시스템", "light": "라이트", "dark": "다크"}
+_APPEARANCE_REVERSE = {v: k for k, v in _APPEARANCE_LABELS.items()}
 
 
 def _prompt_restart(app: "WatcherApp"):
@@ -63,7 +69,7 @@ class WatcherApp(ctk.CTk):
         self.minsize(1080, 640)
         self.configure(fg_color=_BG)
 
-        ctk.set_appearance_mode("dark")
+        ctk.set_appearance_mode(config.get_appearance().capitalize())
 
         self._log_queue = queue.Queue()
         self._observer = None
@@ -107,9 +113,25 @@ class WatcherApp(ctk.CTk):
 
         self._tabview.set("Agent")
 
+        # 테마 토글 (탭뷰 우측 상단 오버레이)
+        self._theme_menu = ctk.CTkOptionMenu(
+            self,
+            values=list(_APPEARANCE_LABELS.values()),
+            width=90,
+            font=(_FONT, 11),
+            command=self._on_theme_change,
+        )
+        self._theme_menu.set(_APPEARANCE_LABELS.get(config.get_appearance(), "시스템"))
+        self._theme_menu.place(relx=1.0, x=-12, y=14, anchor="ne")
+
         # GTX4CMD 파라미터 패널 (우측)
         self._param_panel = ParameterPanel(self)
         self._param_panel.grid(row=0, column=1, padx=(4, 8), pady=8, sticky="ns")
+
+    def _on_theme_change(self, label: str) -> None:
+        appearance = _APPEARANCE_REVERSE.get(label, "system")
+        ctk.set_appearance_mode(appearance.capitalize())
+        config.set_appearance(appearance)
 
     def _build_watcher_tab(self, parent):
         parent.grid_columnconfigure(0, weight=1)
