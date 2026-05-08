@@ -45,6 +45,7 @@ jobs:
             --hidden-import=win32api `
             --collect-all customtkinter `
             --add-data "${{ steps.poppler.outputs.bin }};poppler" `
+            --add-data "assets/fonts;assets/fonts" `
             --name gtx4-manager `
             main.py
 
