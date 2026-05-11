@@ -5,6 +5,7 @@ import os
 import shutil
 import threading
 import time
+from typing import Callable, Optional
 
 import requests
 
@@ -56,7 +57,19 @@ class AgentWorker:
         self._running = False
         self._thread: threading.Thread | None = None
         self._client: GarmentApiClient | None = None
+        # 표준 콜백 셋 (g/l/m 통일) — 모두 Optional, 미지정 시 무시
+        self.on_started: Optional[Callable[[], None]] = None
+        self.on_stopped: Optional[Callable[[], None]] = None
+        self.on_downloaded: Optional[Callable[[str], None]] = None
+        self.on_done: Optional[Callable[[str], None]] = None
+        self.on_error: Optional[Callable[[str], None]] = None
+        self.on_auth_expired: Optional[Callable[[], None]] = None
 
+    @property
+    def running(self) -> bool:
+        return self._running
+
+    # 호환성을 위한 별칭 (이전 코드가 is_running을 참조)
     @property
     def is_running(self) -> bool:
         return self._running
@@ -93,6 +106,7 @@ class AgentWorker:
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         logger.info("Agent 풀링 시작 — 서버: %s", config.API_BASE_URL)
+        _fire(self.on_started)
 
     def stop(self):
         self._running = False
@@ -100,6 +114,7 @@ class AgentWorker:
             self._thread.join(timeout=5)
             self._thread = None
         logger.info("Agent 중지됨")
+        _fire(self.on_stopped)
 
     def _loop(self):
         empty_count = 0
@@ -145,13 +160,17 @@ class AgentWorker:
 
         if not _download_pdf(url, download_path):
             self._report_failed(job_id, "PDF 다운로드 실패")
+            _fire(self.on_error, filename)
             return
+
+        _fire(self.on_downloaded, filename)
 
         try:
             logger.info("출력 시작: %s", filename)
             process_file(download_path)
             self._report_printed(job_id)
             logger.info("출력 완료: %s", filename)
+            _fire(self.on_done, filename)
         except Exception as e:
             logger.error("출력 실패: %s — %s", filename, e)
             self._report_failed(job_id, str(e))
@@ -159,6 +178,7 @@ class AgentWorker:
             error_dest = os.path.join(config.ERROR_DIR, filename)
             if os.path.exists(download_path):
                 shutil.move(download_path, error_dest)
+            _fire(self.on_error, filename)
 
     def _report_printed(self, job_id: str):
         try:
@@ -171,3 +191,13 @@ class AgentWorker:
             self._client.mark_failed(job_id, reason)
         except Exception as e:
             logger.error("출력 실패 보고 실패: %s", e)
+
+
+def _fire(cb, *args):
+    """콜백을 안전하게 호출 — 미지정이거나 예외면 무시."""
+    if cb is None:
+        return
+    try:
+        cb(*args)
+    except Exception:
+        logger.exception("콜백 예외 — 무시하고 계속")

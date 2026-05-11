@@ -257,7 +257,7 @@ class SettingsPanel(ctk.CTkFrame):
     # ── 폴더 ────────────────────────────────
     def _build_folders(self, parent) -> None:
         parent.grid_columnconfigure(1, weight=1)
-        self._watch_dir = self._entry(parent, "감시(incoming)", config.WATCH_DIR, 0)
+        self._watch_dir = self._entry(parent, "감시(incoming)", config.INCOMING_DIR, 0)
         self._done_dir = self._entry(parent, "완료(done)", config.DONE_DIR, 1)
         self._error_dir = self._entry(parent, "에러(error)", config.ERROR_DIR, 2)
         self._download_dir = self._entry(parent, "다운로드", config.DOWNLOAD_DIR, 3)
@@ -342,9 +342,9 @@ class SettingsPanel(ctk.CTkFrame):
             config.save_value("printer", "name", self._printer_name.get())
             config.save_value("printer", "mode", self._printer_mode.get())
 
-            config.save_value("folder", "watch", self._watch_dir.get())
-            config.save_value("folder", "done", self._done_dir.get())
-            config.save_value("folder", "error", self._error_dir.get())
+            config.save_value("paths", "incoming", self._watch_dir.get())
+            config.save_value("paths", "done", self._done_dir.get())
+            config.save_value("paths", "error", self._error_dir.get())
             config.save_value("download", "dir", self._download_dir.get())
 
             config.save_value("gtx4cmd", "exe_path", self._exe_path.get())

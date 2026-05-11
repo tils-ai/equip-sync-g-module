@@ -92,9 +92,9 @@ class PDFFileHandler(FileSystemEventHandler):
 
 def start_watching():
     """폴더 감시 시작, Observer 반환."""
-    os.makedirs(config.WATCH_DIR, exist_ok=True)
+    os.makedirs(config.INCOMING_DIR, exist_ok=True)
     observer = Observer()
-    observer.schedule(PDFFileHandler(), config.WATCH_DIR, recursive=False)
+    observer.schedule(PDFFileHandler(), config.INCOMING_DIR, recursive=False)
     observer.start()
-    logger.info("폴더 감시 시작: %s", config.WATCH_DIR)
+    logger.info("폴더 감시 시작: %s", config.INCOMING_DIR)
     return observer

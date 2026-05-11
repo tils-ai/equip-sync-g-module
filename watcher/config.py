@@ -89,12 +89,6 @@ black_balance = 0
 ; 단방향 인쇄: false/true
 uni_print = false
 
-[folder]
-; 비워두면 exe와 같은 폴더 기준으로 자동 생성
-watch =
-done =
-error =
-
 [render]
 ; PDF → 이미지 변환 해상도 (높을수록 선명)
 dpi = 300
@@ -287,7 +281,7 @@ def _path_fallback(paths_key: str, legacy_section: str, legacy_key: str, default
     return val or os.path.join(BASE_DIR, default_sub)
 
 
-WATCH_DIR = _path_fallback("incoming", "folder", "watch", "incoming")
+INCOMING_DIR = _path_fallback("incoming", "folder", "watch", "incoming")
 PROCESSING_DIR = _ini.get("paths", "processing", fallback="").strip() or os.path.join(BASE_DIR, "processing")
 DONE_DIR = _path_fallback("done", "folder", "done", "done")
 ORIGINALS_DIR = _ini.get("paths", "originals", fallback="").strip() or os.path.join(DONE_DIR, "originals")
@@ -318,14 +312,14 @@ API_BASE_URL = _ini.get("api", "base_url", fallback="https://store.dpl.shop")
 API_POLL_INTERVAL = _ini.getint("api", "poll_interval", fallback=5)
 
 # --- download (legacy — 명시되지 않으면 incoming과 통합) ---
-DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or WATCH_DIR
+DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or INCOMING_DIR
 
 # 파일 안정성 확인 파라미터
 FILE_STABLE_CHECK_INTERVAL = 1.0
 FILE_STABLE_CHECK_COUNT = 2
 
 # 폴더 자동 생성 (spec §11.5 6종 + DOWNLOAD_DIR 호환)
-for _d in (WATCH_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR, DOWNLOAD_DIR, os.path.dirname(LOG_FILE)):
+for _d in (INCOMING_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR, DOWNLOAD_DIR, os.path.dirname(LOG_FILE)):
     if _d:
         os.makedirs(_d, exist_ok=True)
 
@@ -367,7 +361,7 @@ def reload():
     global MIN_WHITE, CHOKE, PAUSE
     global SATURATION, BRIGHTNESS, CONTRAST
     global CYAN_BALANCE, MAGENTA_BALANCE, YELLOW_BALANCE, BLACK_BALANCE, UNI_PRINT
-    global WATCH_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR
+    global INCOMING_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR
     global RENDER_DPI, POPPLER_PATH, LOG_FILE, LOG_LEVEL
     global API_TENANT, API_KEY, API_BASE_URL, API_POLL_INTERVAL, DOWNLOAD_DIR
 
@@ -392,7 +386,7 @@ def reload():
     CYAN_BALANCE = g["CYAN_BALANCE"]; MAGENTA_BALANCE = g["MAGENTA_BALANCE"]
     YELLOW_BALANCE = g["YELLOW_BALANCE"]; BLACK_BALANCE = g["BLACK_BALANCE"]
     UNI_PRINT = g["UNI_PRINT"]
-    WATCH_DIR = _path_fallback("incoming", "folder", "watch", "incoming")
+    INCOMING_DIR = _path_fallback("incoming", "folder", "watch", "incoming")
     PROCESSING_DIR = _ini.get("paths", "processing", fallback="").strip() or os.path.join(BASE_DIR, "processing")
     DONE_DIR = _path_fallback("done", "folder", "done", "done")
     ORIGINALS_DIR = _ini.get("paths", "originals", fallback="").strip() or os.path.join(DONE_DIR, "originals")
@@ -406,8 +400,8 @@ def reload():
     API_KEY = _ini.get("api", "api_key", fallback="")
     API_BASE_URL = _ini.get("api", "base_url", fallback="https://store.dpl.shop")
     API_POLL_INTERVAL = _ini.getint("api", "poll_interval", fallback=5)
-    DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or WATCH_DIR
+    DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or INCOMING_DIR
 
-    for _d in (WATCH_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR, DOWNLOAD_DIR, os.path.dirname(LOG_FILE)):
+    for _d in (INCOMING_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR, DOWNLOAD_DIR, os.path.dirname(LOG_FILE)):
         if _d:
             os.makedirs(_d, exist_ok=True)

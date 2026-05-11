@@ -102,7 +102,7 @@ class WatcherApp(ctk.CTk):
             self,
             on_toggle_agent=self._toggle_agent,
             on_toggle_watcher=self._toggle_watcher,
-            on_open_folder=lambda: _open_folder(config.WATCH_DIR),
+            on_open_folder=lambda: _open_folder(config.INCOMING_DIR),
         )
         self.control.grid(row=2, column=0, sticky="ew", padx=12, pady=4)
 
@@ -163,7 +163,7 @@ class WatcherApp(ctk.CTk):
             self._observer = start_watching()
             self._watcher_running = True
             logger.info("=== Brother GTX-4 Watcher 시작 ===")
-            logger.info("감시: %s → 완료: %s", config.WATCH_DIR, config.DONE_DIR)
+            logger.info("감시: %s → 완료: %s", config.INCOMING_DIR, config.DONE_DIR)
         except Exception:
             logger.exception("watcher 시작 실패")
 
@@ -217,13 +217,13 @@ class WatcherApp(ctk.CTk):
     # ── tick / log ──────────────────────────────────
     def _tick(self) -> None:
         self.cards.set_counts(
-            pending=_count_pdfs(config.WATCH_DIR),
+            pending=_count_pdfs(config.INCOMING_DIR),
             processing=0,
             done=self.stats.done,
             error=self.stats.error,
         )
         if self._watcher_running:
-            self.control.set_watcher(running=True, detail=f"감시 중 · {os.path.basename(config.WATCH_DIR) or 'incoming'}/")
+            self.control.set_watcher(running=True, detail=f"감시 중 · {os.path.basename(config.INCOMING_DIR) or 'incoming'}/")
         else:
             self.control.set_watcher(running=False, detail="정지됨")
 
