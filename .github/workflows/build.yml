@@ -50,18 +50,16 @@ jobs:
             --name gtx4-manager `
             main.py
 
-      - name: Prepare release assets
-        working-directory: watcher
+      - name: Rename artifact (버전 포함)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path release -Force
-          Copy-Item dist/gtx4-manager.exe release/
-          # config.ini는 첫 실행 시 %LOCALAPPDATA%\equip-sync-b-module\에 자동 생성 (spec §11.5)
-          Compress-Archive -Path release/* -DestinationPath ../gtx4-manager-${{ github.ref_name }}.zip
+          $name = "gtx4-manager-${{ github.ref_name }}.exe"
+          Rename-Item -Path "watcher/dist/gtx4-manager.exe" -NewName $name
+          echo "ARTIFACT=watcher/dist/$name" >> $env:GITHUB_ENV
 
       - name: Create Release
         uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.3.2
         with:
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          files: gtx4-manager-${{ github.ref_name }}.zip
+          files: ${{ env.ARTIFACT }}
