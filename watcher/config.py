@@ -3,21 +3,8 @@ import os
 import sys
 
 
-APP_NAME = "equip-sync-b-module"
-
-
 def _base_dir():
-    """장비 GUI spec §11.5: 운영 데이터는 %LOCALAPPDATA%\\<app>\\ 하위.
-
-    - Windows: %LOCALAPPDATA%\\equip-sync-b-module\\
-    - dev/macOS: 스크립트 폴더 (기존 호환)
-    """
-    if sys.platform == "win32":
-        local = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
-        if local:
-            base = os.path.join(local, APP_NAME)
-            os.makedirs(base, exist_ok=True)
-            return base
+    """exe 파일이 있는 폴더 (spec §11.5) — 운영자가 즉시 발견 가능한 위치."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
