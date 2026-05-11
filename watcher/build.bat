@@ -5,6 +5,7 @@ pyinstaller --onefile --windowed ^
     --hidden-import=win32ui ^
     --hidden-import=win32api ^
     --collect-all customtkinter ^
+    --collect-submodules gui ^
     --add-data ".source;.source" ^
     --add-data "assets/fonts;assets/fonts" ^
     --name gtx4-manager ^
