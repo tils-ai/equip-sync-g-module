@@ -3,8 +3,21 @@ import os
 import sys
 
 
+APP_NAME = "equip-sync-b-module"
+
+
 def _base_dir():
-    """exe 실행 시 exe가 있는 폴더, 스크립트 실행 시 스크립트 폴더 반환."""
+    """장비 GUI spec §11.5: 운영 데이터는 %LOCALAPPDATA%\\<app>\\ 하위.
+
+    - Windows: %LOCALAPPDATA%\\equip-sync-b-module\\
+    - dev/macOS: 스크립트 폴더 (기존 호환)
+    """
+    if sys.platform == "win32":
+        local = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if local:
+            base = os.path.join(local, APP_NAME)
+            os.makedirs(base, exist_ok=True)
+            return base
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
@@ -114,8 +127,21 @@ base_url = https://store.dpl.shop
 poll_interval = 5
 
 [download]
-; PDF 다운로드 폴더 (비워두면 ./download)
+; PDF 다운로드 폴더 (비워두면 incoming/과 통합)
 dir =
+
+[paths]
+; spec §11.5 통일 규칙 — 비워두면 %LOCALAPPDATA%\equip-sync-b-module\ 하위 기본 폴더 자동 사용
+incoming =
+processing =
+done =
+originals =
+error =
+
+[log]
+; 로그 파일 경로 (비워두면 %LOCALAPPDATA%\equip-sync-b-module\logs\watcher.log)
+file =
+level = INFO
 
 [gui]
 ; system | light | dark
@@ -266,10 +292,21 @@ def _resolve_gtx4cmd():
 
 GTX4CMD_EXE = _resolve_gtx4cmd()
 
-# --- folder ---
-WATCH_DIR = _ini.get("folder", "watch", fallback="") or os.path.join(BASE_DIR, "watch")
-DONE_DIR = _ini.get("folder", "done", fallback="") or os.path.join(BASE_DIR, "done")
-ERROR_DIR = _ini.get("folder", "error", fallback="") or os.path.join(BASE_DIR, "error")
+# --- folder (spec §11.5 — incoming/processing/done/done/originals/error/logs 통일) ---
+def _path_fallback(paths_key: str, legacy_section: str, legacy_key: str, default_sub: str) -> str:
+    val = _ini.get("paths", paths_key, fallback="").strip()
+    if not val:
+        val = _ini.get(legacy_section, legacy_key, fallback="").strip()
+    return val or os.path.join(BASE_DIR, default_sub)
+
+
+WATCH_DIR = _path_fallback("incoming", "folder", "watch", "incoming")
+PROCESSING_DIR = _ini.get("paths", "processing", fallback="").strip() or os.path.join(BASE_DIR, "processing")
+DONE_DIR = _path_fallback("done", "folder", "done", "done")
+ORIGINALS_DIR = _ini.get("paths", "originals", fallback="").strip() or os.path.join(DONE_DIR, "originals")
+ERROR_DIR = _path_fallback("error", "folder", "error", "error")
+LOG_FILE = _ini.get("log", "file", fallback="").strip() or os.path.join(BASE_DIR, "logs", "watcher.log")
+LOG_LEVEL = _ini.get("log", "level", fallback="INFO").strip().upper()
 
 # --- render ---
 RENDER_DPI = _ini.getint("render", "dpi", fallback=300)
@@ -293,16 +330,17 @@ API_KEY = _ini.get("api", "api_key", fallback="")
 API_BASE_URL = _ini.get("api", "base_url", fallback="https://store.dpl.shop")
 API_POLL_INTERVAL = _ini.getint("api", "poll_interval", fallback=5)
 
-# --- download ---
-DOWNLOAD_DIR = _ini.get("download", "dir", fallback="") or os.path.join(BASE_DIR, "download")
+# --- download (legacy — 명시되지 않으면 incoming과 통합) ---
+DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or WATCH_DIR
 
 # 파일 안정성 확인 파라미터
 FILE_STABLE_CHECK_INTERVAL = 1.0
 FILE_STABLE_CHECK_COUNT = 2
 
-# 폴더 자동 생성
-for _d in (WATCH_DIR, DONE_DIR, ERROR_DIR, DOWNLOAD_DIR):
-    os.makedirs(_d, exist_ok=True)
+# 폴더 자동 생성 (spec §11.5 6종 + DOWNLOAD_DIR 호환)
+for _d in (WATCH_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR, DOWNLOAD_DIR, os.path.dirname(LOG_FILE)):
+    if _d:
+        os.makedirs(_d, exist_ok=True)
 
 
 def save_value(section: str, key: str, value: str):
@@ -342,7 +380,8 @@ def reload():
     global MIN_WHITE, CHOKE, PAUSE
     global SATURATION, BRIGHTNESS, CONTRAST
     global CYAN_BALANCE, MAGENTA_BALANCE, YELLOW_BALANCE, BLACK_BALANCE, UNI_PRINT
-    global WATCH_DIR, DONE_DIR, ERROR_DIR, RENDER_DPI, POPPLER_PATH
+    global WATCH_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR
+    global RENDER_DPI, POPPLER_PATH, LOG_FILE, LOG_LEVEL
     global API_TENANT, API_KEY, API_BASE_URL, API_POLL_INTERVAL, DOWNLOAD_DIR
 
     _ini.read(INI_PATH, encoding="utf-8")
@@ -366,9 +405,13 @@ def reload():
     CYAN_BALANCE = g["CYAN_BALANCE"]; MAGENTA_BALANCE = g["MAGENTA_BALANCE"]
     YELLOW_BALANCE = g["YELLOW_BALANCE"]; BLACK_BALANCE = g["BLACK_BALANCE"]
     UNI_PRINT = g["UNI_PRINT"]
-    WATCH_DIR = _ini.get("folder", "watch", fallback="") or os.path.join(BASE_DIR, "watch")
-    DONE_DIR = _ini.get("folder", "done", fallback="") or os.path.join(BASE_DIR, "done")
-    ERROR_DIR = _ini.get("folder", "error", fallback="") or os.path.join(BASE_DIR, "error")
+    WATCH_DIR = _path_fallback("incoming", "folder", "watch", "incoming")
+    PROCESSING_DIR = _ini.get("paths", "processing", fallback="").strip() or os.path.join(BASE_DIR, "processing")
+    DONE_DIR = _path_fallback("done", "folder", "done", "done")
+    ORIGINALS_DIR = _ini.get("paths", "originals", fallback="").strip() or os.path.join(DONE_DIR, "originals")
+    ERROR_DIR = _path_fallback("error", "folder", "error", "error")
+    LOG_FILE = _ini.get("log", "file", fallback="").strip() or os.path.join(BASE_DIR, "logs", "watcher.log")
+    LOG_LEVEL = _ini.get("log", "level", fallback="INFO").strip().upper()
     RENDER_DPI = _ini.getint("render", "dpi", fallback=300)
     POPPLER_PATH = _resolve_poppler()
 
@@ -376,7 +419,8 @@ def reload():
     API_KEY = _ini.get("api", "api_key", fallback="")
     API_BASE_URL = _ini.get("api", "base_url", fallback="https://store.dpl.shop")
     API_POLL_INTERVAL = _ini.getint("api", "poll_interval", fallback=5)
-    DOWNLOAD_DIR = _ini.get("download", "dir", fallback="") or os.path.join(BASE_DIR, "download")
+    DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or WATCH_DIR
 
-    for _d in (WATCH_DIR, DONE_DIR, ERROR_DIR, DOWNLOAD_DIR):
-        os.makedirs(_d, exist_ok=True)
+    for _d in (WATCH_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR, DOWNLOAD_DIR, os.path.dirname(LOG_FILE)):
+        if _d:
+            os.makedirs(_d, exist_ok=True)
