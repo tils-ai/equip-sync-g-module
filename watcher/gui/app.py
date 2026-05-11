@@ -146,8 +146,10 @@ class WatcherApp(ctk.CTk):
         self._start_watcher()
         if config.API_KEY and config.API_TENANT:
             self._start_agent()
+        elif config.API_TENANT:
+            self.control.set_agent(running=False, detail="미페어링 — Agent 시작 시 자동 인증", enabled=True)
         else:
-            self.control.set_agent(running=False, detail="미페어링 — 설정에서 페어링 필요", enabled=True)
+            self.control.set_agent(running=False, detail="스토어 ID 미설정 — 설정 패널에서 입력", enabled=False)
 
     def _start_watcher(self) -> None:
         if self._watcher_running:
@@ -181,8 +183,8 @@ class WatcherApp(ctk.CTk):
     def _start_agent(self) -> None:
         if self._agent_running:
             return
-        if not config.API_KEY or not config.API_TENANT:
-            logger.warning("agent 시작 거부 — 페어링 정보 없음")
+        if not config.API_TENANT:
+            logger.warning("agent 시작 거부 — 스토어 ID 미설정 (설정 패널에서 입력 필요)")
             return
         try:
             from agent import AgentWorker
@@ -193,7 +195,10 @@ class WatcherApp(ctk.CTk):
             self._agent = AgentWorker()
             self._agent.start()
             self._agent_running = True
-            logger.info("=== Agent (API 풀링) 시작 — %s ===", config.API_BASE_URL)
+            if config.API_KEY:
+                logger.info("=== Agent (API 풀링) 시작 — %s ===", config.API_BASE_URL)
+            else:
+                logger.info("=== Agent 인증 시작 — 브라우저에서 승인 후 풀링 자동 시작 ===")
         except Exception:
             logger.exception("agent 시작 실패")
 
@@ -226,8 +231,10 @@ class WatcherApp(ctk.CTk):
             self.control.set_agent(running=True, detail=f"풀링 중 · {config.API_POLL_INTERVAL}초 간격", enabled=True)
         elif config.API_KEY and config.API_TENANT:
             self.control.set_agent(running=False, detail="정지됨", enabled=True)
+        elif config.API_TENANT:
+            self.control.set_agent(running=False, detail="미페어링 — Agent 시작 시 자동 인증", enabled=True)
         else:
-            self.control.set_agent(running=False, detail="미페어링 — 설정에서 페어링 필요", enabled=False)
+            self.control.set_agent(running=False, detail="스토어 ID 미설정 — 설정 패널에서 입력", enabled=False)
 
         self.control.tick()
         self._after_id = self.after(self.REFRESH_MS, self._tick)

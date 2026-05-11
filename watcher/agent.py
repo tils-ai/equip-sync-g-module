@@ -10,6 +10,7 @@ import requests
 
 import config
 from api_client import GarmentApiClient
+from auth import authenticate
 from processor import process_file
 
 logger = logging.getLogger(__name__)
@@ -61,17 +62,37 @@ class AgentWorker:
         return self._running
 
     def start(self):
+        """Agent 시작 — API 키 없으면 Device Auth 자동 트리거."""
         if self._running:
             return
         if not config.API_KEY:
-            logger.error("API 키가 설정되지 않았습니다. 인증을 먼저 진행하세요.")
+            if not config.API_TENANT:
+                logger.error("스토어 ID(tenant) 미설정 — 설정 패널에서 입력 후 다시 시도하세요.")
+                return
+            logger.info("인증 시작 — tenant: %s", config.API_TENANT)
+            threading.Thread(target=self._auth_and_start, daemon=True).start()
             return
+        self._start_polling()
 
+    def _auth_and_start(self):
+        """브라우저 Device Auth → API 키 발급 → config.ini 저장 → 풀링 시작."""
+        try:
+            api_key = authenticate(config.API_BASE_URL, config.API_TENANT)
+            config.save_value("api", "api_key", api_key)
+            config.reload()
+            logger.info("인증 완료 — 풀링 시작")
+            self._start_polling()
+        except SystemExit:
+            return
+        except Exception:
+            logger.exception("인증 오류")
+
+    def _start_polling(self):
         self._client = GarmentApiClient(config.API_BASE_URL, config.API_KEY)
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
-        logger.info("Agent 시작 — 서버: %s", config.API_BASE_URL)
+        logger.info("Agent 풀링 시작 — 서버: %s", config.API_BASE_URL)
 
     def stop(self):
         self._running = False
