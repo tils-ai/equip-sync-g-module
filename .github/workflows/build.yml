@@ -55,9 +55,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path release -Force
           Copy-Item dist/gtx4-manager.exe release/
-          # config.ini 기본값 생성용으로 한번 실행
-          python -c "import sys; sys.path.insert(0,'.'); import config"
-          Copy-Item config.ini release/
+          # config.ini는 첫 실행 시 %LOCALAPPDATA%\equip-sync-b-module\에 자동 생성 (spec §11.5)
           Compress-Archive -Path release/* -DestinationPath ../gtx4-manager-${{ github.ref_name }}.zip
 
       - name: Create Release
