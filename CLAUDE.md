@@ -22,7 +22,7 @@ Brother GTX-4 가먼트 프린터와 연동하여 dps-store 서버의 디자인 
 ### 구조
 
 ```
-equip-sync-b-module/
+equip-sync-g-module/
 ├── .source/               # GTX4CMD.exe, GTX4Api.dll (대외비, git 미추적)
 ├── .github/workflows/     # GitHub Actions 빌드
 └── watcher/               # 프로그램 코드

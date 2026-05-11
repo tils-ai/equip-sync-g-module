@@ -47,14 +47,14 @@ jobs:
             --collect-submodules gui `
             --add-data "${{ steps.poppler.outputs.bin }};poppler" `
             --add-data "assets/fonts;assets/fonts" `
-            --name gtx4-manager `
+            --name equip-sync-g `
             main.py
 
       - name: Rename artifact (버전 포함)
         shell: pwsh
         run: |
-          $name = "gtx4-manager-${{ github.ref_name }}.exe"
-          Rename-Item -Path "watcher/dist/gtx4-manager.exe" -NewName $name
+          $name = "equip-sync-g-${{ github.ref_name }}.exe"
+          Rename-Item -Path "watcher/dist/equip-sync-g.exe" -NewName $name
           echo "ARTIFACT=watcher/dist/$name" >> $env:GITHUB_ENV
 
       - name: Create Release

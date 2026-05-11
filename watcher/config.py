@@ -118,7 +118,7 @@ poll_interval = 5
 dir =
 
 [paths]
-; spec §11.5 통일 규칙 — 비워두면 %LOCALAPPDATA%\equip-sync-b-module\ 하위 기본 폴더 자동 사용
+; spec §11.5 통일 규칙 — 비워두면 %LOCALAPPDATA%\equip-sync-g-module\ 하위 기본 폴더 자동 사용
 incoming =
 processing =
 done =
@@ -126,7 +126,7 @@ originals =
 error =
 
 [log]
-; 로그 파일 경로 (비워두면 %LOCALAPPDATA%\equip-sync-b-module\logs\watcher.log)
+; 로그 파일 경로 (비워두면 %LOCALAPPDATA%\equip-sync-g-module\logs\watcher.log)
 file =
 level = INFO
 
