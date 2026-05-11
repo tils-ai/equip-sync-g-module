@@ -1,0 +1,258 @@
+"""WatcherApp — 단일 화면 (spec §1, §9). b-module 가먼트 전용 device label.
+
+기존 watcher.py / agent.py 도메인 로직은 그대로 사용.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import queue
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Optional
+
+import customtkinter as ctk
+
+import config
+
+from .cards import StatusCards
+from .header import Header
+from .log_box import LogBox, attach_logging
+from .op_control import OpControlBox
+from .recent import RecentList
+from .settings_panel import SettingsPanel
+from .stats import SessionStats
+from . import theme
+
+logger = logging.getLogger(__name__)
+
+WINDOW_TITLE = "Brother GTX-4 Manager"
+WINDOW_SIZE = (920, 680)
+DEVICE_LABEL = "👕 Brother GTX-4"
+
+
+def _open_folder(path: str) -> None:
+    if not path:
+        return
+    os.makedirs(path, exist_ok=True)
+    if sys.platform == "win32":
+        os.startfile(path)  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
+def _count_pdfs(folder: str) -> int:
+    if not folder or not os.path.isdir(folder):
+        return 0
+    try:
+        return sum(1 for n in os.listdir(folder) if n.lower().endswith(".pdf"))
+    except OSError:
+        return 0
+
+
+class WatcherApp(ctk.CTk):
+    REFRESH_MS = 1500
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stats = SessionStats()
+        self._log_queue: queue.Queue = queue.Queue()
+        self._after_id: Optional[str] = None
+
+        self._observer = None
+        self._agent = None
+        self._watcher_running = False
+        self._agent_running = False
+
+        theme.apply(config.get_appearance())
+
+        self.title(WINDOW_TITLE)
+        self.geometry(f"{WINDOW_SIZE[0]}x{WINDOW_SIZE[1]}")
+        self.minsize(720, 540)
+        self.configure(fg_color=theme.BG)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=0)
+        self.grid_rowconfigure(2, weight=0)
+        self.grid_rowconfigure(3, weight=1)
+        self.grid_rowconfigure(4, weight=2)
+
+        self.header = Header(
+            self,
+            device_label=DEVICE_LABEL,
+            on_settings=self._open_settings,
+            on_theme_change=self._on_theme_change,
+            appearance=config.get_appearance(),
+        )
+        self.header.grid(row=0, column=0, sticky="ew")
+        self.header.set_pairing("connected" if config.API_KEY else "unpaired")
+
+        self.cards = StatusCards(self, on_error_click=lambda: _open_folder(config.ERROR_DIR))
+        self.cards.grid(row=1, column=0, sticky="ew", padx=12, pady=(8, 4))
+
+        self.control = OpControlBox(
+            self,
+            on_toggle_agent=self._toggle_agent,
+            on_toggle_watcher=self._toggle_watcher,
+            on_open_folder=lambda: _open_folder(config.WATCH_DIR),
+        )
+        self.control.grid(row=2, column=0, sticky="ew", padx=12, pady=4)
+
+        self.recent = RecentList(self)
+        self.recent.grid(row=3, column=0, sticky="nsew", padx=12, pady=4)
+
+        self.log = LogBox(self)
+        self.log.grid(row=4, column=0, sticky="nsew", padx=12, pady=(4, 12))
+
+        attach_logging(self._log_queue)
+
+        self.settings_panel = SettingsPanel(self)
+
+        self.after(200, self._start_services)
+        self._tick()
+        self._drain_log()
+
+    # ── 외부 인터랙션 ─────────────────────────────────
+    def _open_settings(self) -> None:
+        self.settings_panel.open()
+
+    def _on_theme_change(self, label: str) -> None:
+        appearance = theme.APPEARANCE_REVERSE.get(label, "system")
+        applied = theme.apply(appearance)
+        config.set_appearance(applied)
+
+    def _toggle_watcher(self) -> None:
+        if self._watcher_running:
+            self._stop_watcher()
+        else:
+            self._start_watcher()
+
+    def _toggle_agent(self) -> None:
+        if self._agent_running:
+            self._stop_agent()
+        else:
+            self._start_agent()
+
+    # ── 라이프사이클 ──────────────────────────────────
+    def _start_services(self) -> None:
+        self._start_watcher()
+        if config.API_KEY and config.API_TENANT:
+            self._start_agent()
+        else:
+            self.control.set_agent(running=False, detail="미페어링 — 설정에서 페어링 필요", enabled=True)
+
+    def _start_watcher(self) -> None:
+        if self._watcher_running:
+            return
+        try:
+            from watcher import start_watching
+        except Exception:
+            logger.exception("watcher 로딩 실패")
+            return
+        try:
+            self._observer = start_watching()
+            self._watcher_running = True
+            logger.info("=== Brother GTX-4 Watcher 시작 ===")
+            logger.info("감시: %s → 완료: %s", config.WATCH_DIR, config.DONE_DIR)
+        except Exception:
+            logger.exception("watcher 시작 실패")
+
+    def _stop_watcher(self) -> None:
+        if not self._watcher_running:
+            return
+        try:
+            if self._observer:
+                self._observer.stop()
+                self._observer.join(timeout=5)
+                self._observer = None
+        except Exception:
+            logger.exception("watcher 정지 실패")
+        self._watcher_running = False
+        logger.info("watcher 정지됨")
+
+    def _start_agent(self) -> None:
+        if self._agent_running:
+            return
+        if not config.API_KEY or not config.API_TENANT:
+            logger.warning("agent 시작 거부 — 페어링 정보 없음")
+            return
+        try:
+            from agent import AgentWorker
+        except Exception:
+            logger.exception("agent 로딩 실패")
+            return
+        try:
+            self._agent = AgentWorker()
+            self._agent.start()
+            self._agent_running = True
+            logger.info("=== Agent (API 풀링) 시작 — %s ===", config.API_BASE_URL)
+        except Exception:
+            logger.exception("agent 시작 실패")
+
+    def _stop_agent(self) -> None:
+        if not self._agent_running:
+            return
+        try:
+            if self._agent:
+                self._agent.stop()
+                self._agent = None
+        except Exception:
+            logger.exception("agent 정지 실패")
+        self._agent_running = False
+        logger.info("agent 정지됨")
+
+    # ── tick / log ──────────────────────────────────
+    def _tick(self) -> None:
+        self.cards.set_counts(
+            pending=_count_pdfs(config.WATCH_DIR),
+            processing=0,
+            done=self.stats.done,
+            error=self.stats.error,
+        )
+        if self._watcher_running:
+            self.control.set_watcher(running=True, detail=f"감시 중 · {os.path.basename(config.WATCH_DIR) or 'incoming'}/")
+        else:
+            self.control.set_watcher(running=False, detail="정지됨")
+
+        if self._agent_running:
+            self.control.set_agent(running=True, detail=f"풀링 중 · {config.API_POLL_INTERVAL}초 간격", enabled=True)
+        elif config.API_KEY and config.API_TENANT:
+            self.control.set_agent(running=False, detail="정지됨", enabled=True)
+        else:
+            self.control.set_agent(running=False, detail="미페어링 — 설정에서 페어링 필요", enabled=False)
+
+        self.control.tick()
+        self._after_id = self.after(self.REFRESH_MS, self._tick)
+
+    def _drain_log(self) -> None:
+        for _ in range(100):
+            try:
+                line = self._log_queue.get_nowait()
+                self.log.append(line)
+            except queue.Empty:
+                break
+        self.after(150, self._drain_log)
+
+    def _on_close(self) -> None:
+        try:
+            if self._after_id:
+                self.after_cancel(self._after_id)
+        except Exception:
+            pass
+        try:
+            self._stop_agent()
+        except Exception:
+            pass
+        try:
+            self._stop_watcher()
+        except Exception:
+            pass
+        self.destroy()
