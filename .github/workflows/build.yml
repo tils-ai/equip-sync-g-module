@@ -43,6 +43,11 @@ jobs:
             --hidden-import=win32print `
             --hidden-import=win32ui `
             --hidden-import=win32api `
+            --hidden-import=requests `
+            --hidden-import=urllib3 `
+            --hidden-import=certifi `
+            --hidden-import=charset_normalizer `
+            --hidden-import=idna `
             --collect-all customtkinter `
             --collect-submodules gui `
             --add-data "${{ steps.poppler.outputs.bin }};poppler" `

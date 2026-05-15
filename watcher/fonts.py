@@ -2,13 +2,16 @@
 
 PyInstaller 동결 빌드: sys._MEIPASS/assets/fonts 에서 로드 (--add-data로 번들).
 개발 모드: 이 파일과 같은 디렉토리의 assets/fonts/ 에서 로드.
-실패 시 OS 기본 한글 폰트(Malgun Gothic)로 폴백.
+실패 시 OS 기본 한글 폰트(Malgun Gothic)로 폴백 — 이 경우 경고 로그를 남긴다.
 """
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 PRETENDARD = "Pretendard"
 FALLBACK = "Malgun Gothic"
@@ -18,6 +21,22 @@ def _resource_dir() -> Path:
     if hasattr(sys, "_MEIPASS"):
         return Path(sys._MEIPASS) / "assets" / "fonts"
     return Path(__file__).resolve().parent / "assets" / "fonts"
+
+
+def bundled_font_path(bold: bool = False) -> Path | None:
+    """PIL/reportlab 등 family명이 아닌 파일 경로가 필요한 곳에서 사용.
+
+    번들된 Pretendard OTF 경로를 반환. Bold 요청인데 Bold 파일이 없으면 Regular 반환.
+    번들 파일 자체가 없으면 None.
+    """
+    font_dir = _resource_dir()
+    bold_path = font_dir / "Pretendard-Bold.otf"
+    regular_path = font_dir / "Pretendard-Regular.otf"
+    if bold and bold_path.exists():
+        return bold_path
+    if regular_path.exists():
+        return regular_path
+    return bold_path if bold_path.exists() else None
 
 
 _cached_family: str | None = None
@@ -34,6 +53,7 @@ def register() -> str:
     bold = font_dir / "Pretendard-Bold.otf"
 
     if not regular.exists():
+        logger.warning("번들 Pretendard 누락 (%s) → '%s'로 폴백", regular, FALLBACK)
         _cached_family = FALLBACK
         return _cached_family
 
@@ -47,6 +67,7 @@ def register() -> str:
                 ctypes.windll.gdi32.AddFontResourceExW(str(bold), FR_PRIVATE, 0)
             _cached_family = PRETENDARD
         except Exception:
+            logger.exception("Pretendard 등록 실패 (Windows GDI) → '%s'로 폴백", FALLBACK)
             _cached_family = FALLBACK
     elif sys.platform == "darwin":
         try:
@@ -62,8 +83,10 @@ def register() -> str:
                     CTFontManagerRegisterFontsForURL(url, kCTFontManagerScopeProcess, None)
             _cached_family = PRETENDARD
         except Exception:
+            logger.exception("Pretendard 등록 실패 (CoreText) → '%s'로 폴백", FALLBACK)
             _cached_family = FALLBACK
     else:
+        logger.warning("지원하지 않는 OS (%s) → '%s'로 폴백", sys.platform, FALLBACK)
         _cached_family = FALLBACK
 
     return _cached_family
