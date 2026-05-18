@@ -27,6 +27,25 @@ def list_printers() -> list[str]:
         return []
 
 
+def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
+    """PDF 파일을 일반 Windows 프린터로 출력 (작업지시서용).
+
+    pdf2image로 페이지별 PIL Image로 변환 후 print_image() 재사용.
+    가먼트 프린터(GTX-4)가 아닌 일반 A4 레이저/잉크젯에 보낸다.
+    """
+    if not printer_name:
+        raise RuntimeError("작업지시서 프린터명이 설정되지 않았습니다.")
+    from pdf2image import convert_from_path
+
+    poppler = getattr(config, "POPPLER_PATH", None)
+    images = convert_from_path(pdf_path, dpi=dpi, poppler_path=poppler, use_pdftocairo=True)
+    if not images:
+        raise RuntimeError(f"PDF에 페이지가 없습니다: {pdf_path}")
+    for i, img in enumerate(images, 1):
+        logger.info("작업지시서 페이지 %d/%d 출력 중 (%s)...", i, len(images), printer_name)
+        print_image(img, printer_name)
+
+
 def print_image(image: Image.Image, printer_name: str = None):
     """PIL 이미지를 Windows 프린터로 직접 출력한다."""
     printer_name = printer_name or config.PRINTER_NAME
