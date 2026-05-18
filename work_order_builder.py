@@ -27,7 +27,15 @@ class WorkOrderJob:
     brand_name: str
     printed_by: str
     work_url: str
+    item_index: int = 1  # 주문 내 디자인 순번 (1-based)
+    item_total: int = 1  # 주문 내 총 디자인 수
     preview_image_path: Optional[str] = None  # 다운로드한 디자인 PNG 경로
+
+
+def format_order_number(order_number: str, item_index: int, item_total: int) -> str:
+    """주문번호 표시 형식: 20261211-000001-01(3)"""
+    total = item_total if item_total and item_total > 0 else 1
+    return f"{order_number}-{item_index:02d}({total})"
 
 
 def _font_path(name: str) -> Optional[str]:
@@ -140,7 +148,11 @@ def build_work_order_pdf(job: WorkOrderJob, dest_path: str) -> str:
     c.setFont(bold_font, 20)
     c.drawString(inner_x, inner_y + inner_h - 24, "작업지시서")
     c.setFont(regular_font, 10)
-    c.drawString(inner_x, inner_y + inner_h - 40, f"주문번호 · {job.order_number}")
+    c.drawString(
+        inner_x,
+        inner_y + inner_h - 40,
+        f"주문번호 · {format_order_number(job.order_number, job.item_index, job.item_total)}",
+    )
 
     # QR 코드 (우측 상단)
     try:

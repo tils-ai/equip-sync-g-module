@@ -209,6 +209,8 @@ class AgentWorker:
                         brand_name=wo_meta.get("brandName", ""),
                         printed_by=wo_meta.get("printedBy", ""),
                         work_url=wo_meta.get("workUrl", ""),
+                        item_index=int(job.get("itemIndex", 1)),
+                        item_total=int(job.get("itemTotal", 1)),
                         preview_image_path=download_path if _is_image(download_path) else None,
                     ),
                     wo_pdf,
