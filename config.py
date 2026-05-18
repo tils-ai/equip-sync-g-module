@@ -15,10 +15,22 @@ INI_PATH = os.path.join(BASE_DIR, "config.ini")
 
 _DEFAULT_INI = """\
 [printer]
-; Windows 설정 > 프린터에서 정확한 이름 확인
-; 여러 개 지정 시 콤마 구분 (첫 번째 실패 시 다음 프린터로 자동 폴백)
-name = Brother GTX-4
+; ── 가먼트 디자인 프린터 (Brother GTX-4 등) ──
+; Windows 설정 > 프린터에서 정확한 이름 확인. 여러 개 지정 시 콤마 구분.
+garment_name = Brother GTX-4
+; 가먼트 자동 출력 활성화 (true/false)
+garment_enabled = true
 ; 출력 모드: direct (win32print 직접) / gtx4cmd (GTX4CMD.exe 경유)
+garment_mode = direct
+
+; ── 작업지시서 프린터 (A4 레이저/잉크젯 등) ──
+; 비워두면 작업지시서 미출력 (work_order_enabled=false와 동일 효과)
+work_order_name =
+; 작업지시서 자동 출력 활성화 (true/false)
+work_order_enabled = false
+
+; (deprecated, 하위 호환) — 새 키 garment_name/garment_mode 사용
+name = Brother GTX-4
 mode = direct
 
 [gtx4cmd]
@@ -143,9 +155,22 @@ def _parse_printer_names(raw: str) -> list[str]:
 
 
 # --- printer ---
-PRINTER_NAMES = _parse_printer_names(_ini.get("printer", "name", fallback="Brother GTX-4"))
-PRINTER_NAME = PRINTER_NAMES[0]  # 하위호환: 단일 참조 시 첫 번째 프린터
-PRINTER_MODE = _ini.get("printer", "mode", fallback="direct")
+# 가먼트 프린터 (디자인 출력) — 신규 키 garment_name 우선, 미설정 시 기존 name 폴백
+GARMENT_PRINTER_NAMES = _parse_printer_names(
+    _ini.get("printer", "garment_name", fallback=_ini.get("printer", "name", fallback="Brother GTX-4"))
+)
+GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0]
+GARMENT_ENABLED = _ini.getboolean("printer", "garment_enabled", fallback=True)
+GARMENT_MODE = _ini.get("printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="direct"))
+
+# 작업지시서 프린터 (PDF, 일반 프린터)
+WORK_ORDER_PRINTER_NAME = _ini.get("printer", "work_order_name", fallback="").strip()
+WORK_ORDER_ENABLED = _ini.getboolean("printer", "work_order_enabled", fallback=False)
+
+# 하위호환 alias (printer.py, processor.py가 기존 참조)
+PRINTER_NAMES = GARMENT_PRINTER_NAMES
+PRINTER_NAME = GARMENT_PRINTER_NAME
+PRINTER_MODE = GARMENT_MODE
 
 # --- gtx4cmd ---
 def _load_gtx4cmd() -> dict:
@@ -354,6 +379,8 @@ def set_appearance(value: str) -> None:
 def reload():
     """config.ini를 다시 읽어서 모듈 변수를 갱신한다."""
     global PRINTER_NAME, PRINTER_NAMES, PRINTER_MODE, GTX4CMD_EXE
+    global GARMENT_PRINTER_NAME, GARMENT_PRINTER_NAMES, GARMENT_ENABLED, GARMENT_MODE
+    global WORK_ORDER_PRINTER_NAME, WORK_ORDER_ENABLED
     global AUTO_CENTER, POSITION, SIZE, MAGNIFICATION, WHITE_AS
     global COPIES, MACHINE_MODE, RESOLUTION, PLATEN_SIZE, INK
     global ECO_MODE, HIGHLIGHT, MASK, INK_VOLUME, DOUBLE_PRINT
@@ -367,9 +394,19 @@ def reload():
 
     _ini.read(INI_PATH, encoding="utf-8")
 
-    PRINTER_NAMES = _parse_printer_names(_ini.get("printer", "name", fallback="Brother GTX-4"))
-    PRINTER_NAME = PRINTER_NAMES[0]
-    PRINTER_MODE = _ini.get("printer", "mode", fallback="direct")
+    GARMENT_PRINTER_NAMES = _parse_printer_names(
+        _ini.get("printer", "garment_name", fallback=_ini.get("printer", "name", fallback="Brother GTX-4"))
+    )
+    GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0]
+    GARMENT_ENABLED = _ini.getboolean("printer", "garment_enabled", fallback=True)
+    GARMENT_MODE = _ini.get(
+        "printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="direct")
+    )
+    WORK_ORDER_PRINTER_NAME = _ini.get("printer", "work_order_name", fallback="").strip()
+    WORK_ORDER_ENABLED = _ini.getboolean("printer", "work_order_enabled", fallback=False)
+    PRINTER_NAMES = GARMENT_PRINTER_NAMES
+    PRINTER_NAME = GARMENT_PRINTER_NAME
+    PRINTER_MODE = GARMENT_MODE
     GTX4CMD_EXE = _resolve_gtx4cmd()
 
     g = _load_gtx4cmd()

@@ -252,59 +252,100 @@ class SettingsPanel(ctk.CTkFrame):
     def _build_printer(self, parent) -> None:
         parent.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(parent, text="프린터명(들)", font=ctk.CTkFont(family=_font_family(), size=11)).grid(
-            row=0, column=0, sticky="w", pady=2
+        # 가먼트 디자인 프린터
+        self._garment_name, self._garment_menu = self._printer_row(
+            parent, "가먼트 프린터(들)", config.GARMENT_PRINTER_NAME, row=0,
+            on_pick=self._on_garment_picked, refresh=self._refresh_garment_printers,
         )
+        self._printer_mode = self._combo(
+            parent, "가먼트 출력 모드", ["direct", "gtx4cmd"], config.GARMENT_MODE, 1
+        )
+        self._garment_enabled = ctk.CTkSwitch(
+            parent, text="가먼트 자동 출력", onvalue=True, offvalue=False,
+        )
+        if config.GARMENT_ENABLED:
+            self._garment_enabled.select()
+        else:
+            self._garment_enabled.deselect()
+        self._garment_enabled.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 8))
 
-        printer_row = ctk.CTkFrame(parent, fg_color="transparent")
-        printer_row.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=2)
-        printer_row.grid_columnconfigure(0, weight=1)
+        # 작업지시서 프린터
+        self._work_order_name, self._work_order_menu = self._printer_row(
+            parent, "지시서 프린터", config.WORK_ORDER_PRINTER_NAME, row=3,
+            on_pick=self._on_work_order_picked, refresh=self._refresh_work_order_printers,
+            allow_blank=True,
+        )
+        self._work_order_enabled = ctk.CTkSwitch(
+            parent, text="지시서 자동 출력", onvalue=True, offvalue=False,
+        )
+        if config.WORK_ORDER_ENABLED:
+            self._work_order_enabled.select()
+        else:
+            self._work_order_enabled.deselect()
+        self._work_order_enabled.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
-        # 다중 프린터(쉼표 구분) 지원 — 직접 입력 유지
-        self._printer_name = ctk.CTkEntry(printer_row, font=ctk.CTkFont(family=_font_family(), size=11))
-        self._printer_name.grid(row=0, column=0, sticky="ew")
-        self._printer_name.insert(0, config.PRINTER_NAME)
+        # 초기 로드 (Windows에서만 실제 목록 채워짐)
+        self._refresh_garment_printers()
+        self._refresh_work_order_printers()
 
-        # 설치된 프린터 목록 선택 → Entry 값 교체
-        self._printer_menu = ctk.CTkOptionMenu(
-            printer_row,
+    def _printer_row(
+        self, parent, label: str, value: str, *, row: int, on_pick, refresh, allow_blank: bool = False
+    ):
+        """프린터명 입력 한 줄 — Entry + OptionMenu + 새로고침 버튼. (entry, menu) 반환."""
+        ctk.CTkLabel(parent, text=label, font=ctk.CTkFont(family=_font_family(), size=11)).grid(
+            row=row, column=0, sticky="w", pady=2
+        )
+        row_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        row_frame.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=2)
+        row_frame.grid_columnconfigure(0, weight=1)
+
+        entry = ctk.CTkEntry(row_frame, font=ctk.CTkFont(family=_font_family(), size=11))
+        entry.grid(row=0, column=0, sticky="ew")
+        entry.insert(0, value)
+
+        menu = ctk.CTkOptionMenu(
+            row_frame,
             values=["선택..."],
             width=90,
             font=ctk.CTkFont(family=_font_family(), size=10),
-            command=self._on_printer_picked,
+            command=on_pick,
         )
-        self._printer_menu.set("선택...")
-        self._printer_menu.grid(row=0, column=1, padx=(4, 0))
+        menu.set("선택...")
+        menu.grid(row=0, column=1, padx=(4, 0))
 
         ctk.CTkButton(
-            printer_row,
-            text="↻",
-            width=28,
+            row_frame, text="↻", width=28,
             font=ctk.CTkFont(family=_font_family(), size=11),
-            command=self._refresh_printers,
+            command=refresh,
         ).grid(row=0, column=2, padx=(2, 0))
 
-        self._printer_mode = self._combo(parent, "출력 모드", ["direct", "gtx4cmd"], config.PRINTER_MODE, 1)
+        return entry, menu
 
-        # 초기 로드 (Windows에서만 실제 목록 채워짐)
-        self._refresh_printers()
-
-    def _refresh_printers(self) -> None:
-        """설치된 프린터 목록을 다시 읽어 OptionMenu에 반영한다."""
+    def _refresh_printers_into(self, menu) -> None:
         from printer import list_printers
-
         printers = list_printers()
         values = printers if printers else ["(설치된 프린터 없음)"]
-        self._printer_menu.configure(values=values)
-        self._printer_menu.set("선택...")
+        menu.configure(values=values)
+        menu.set("선택...")
 
-    def _on_printer_picked(self, name: str) -> None:
-        """OptionMenu에서 프린터를 선택했을 때 Entry 값을 교체한다."""
+    def _refresh_garment_printers(self) -> None:
+        self._refresh_printers_into(self._garment_menu)
+
+    def _refresh_work_order_printers(self) -> None:
+        self._refresh_printers_into(self._work_order_menu)
+
+    def _pick_into(self, entry, menu, name: str) -> None:
         if not name or name in ("선택...", "(설치된 프린터 없음)"):
             return
-        self._printer_name.delete(0, "end")
-        self._printer_name.insert(0, name)
-        self._printer_menu.set("선택...")
+        entry.delete(0, "end")
+        entry.insert(0, name)
+        menu.set("선택...")
+
+    def _on_garment_picked(self, name: str) -> None:
+        self._pick_into(self._garment_name, self._garment_menu, name)
+
+    def _on_work_order_picked(self, name: str) -> None:
+        self._pick_into(self._work_order_name, self._work_order_menu, name)
 
     # ── 폴더 ────────────────────────────────
     def _build_folders(self, parent) -> None:
@@ -391,7 +432,13 @@ class SettingsPanel(ctk.CTkFrame):
             config.save_value("api", "base_url", self._api_base_url.get())
             config.save_value("api", "poll_interval", self._api_poll_interval.get())
 
-            config.save_value("printer", "name", self._printer_name.get())
+            config.save_value("printer", "garment_name", self._garment_name.get())
+            config.save_value("printer", "garment_mode", self._printer_mode.get())
+            config.save_value("printer", "garment_enabled", "true" if self._garment_enabled.get() else "false")
+            config.save_value("printer", "work_order_name", self._work_order_name.get())
+            config.save_value("printer", "work_order_enabled", "true" if self._work_order_enabled.get() else "false")
+            # 하위호환: 기존 name/mode도 가먼트 키와 동기화
+            config.save_value("printer", "name", self._garment_name.get())
             config.save_value("printer", "mode", self._printer_mode.get())
 
             config.save_value("paths", "incoming", self._watch_dir.get())
