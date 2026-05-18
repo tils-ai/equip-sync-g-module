@@ -21,7 +21,6 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        working-directory: watcher
         run: pip install -r requirements.txt
 
       - name: Install poppler via MSYS2
@@ -37,7 +36,6 @@ jobs:
           echo "bin=$popplerBin" >> $env:GITHUB_OUTPUT
 
       - name: Build exe
-        working-directory: watcher
         run: |
           pyinstaller --onefile --windowed `
             --hidden-import=win32print `
@@ -59,8 +57,8 @@ jobs:
         shell: pwsh
         run: |
           $name = "equip-sync-g-${{ github.ref_name }}.exe"
-          Rename-Item -Path "watcher/dist/equip-sync-g.exe" -NewName $name
-          echo "ARTIFACT=watcher/dist/$name" >> $env:GITHUB_ENV
+          Rename-Item -Path "dist/equip-sync-g.exe" -NewName $name
+          echo "ARTIFACT=dist/$name" >> $env:GITHUB_ENV
 
       - name: Create Release
         uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.3.2

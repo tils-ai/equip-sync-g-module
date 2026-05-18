@@ -7,6 +7,24 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
 
 # 로컬 설정 (사용자별 자동 생성)
-watcher/config.ini
+config.ini
+
+# 런타임 입출력 폴더 (config.py가 자동 생성)
+incoming/
+processing/
+done/
+error/
+download/
+watch/
+logs/
+*.log
