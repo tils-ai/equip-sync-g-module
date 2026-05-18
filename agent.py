@@ -1,4 +1,4 @@
-"""가먼트 프린터 Agent — dps-store API 풀링 → PDF 다운로드 → 출력."""
+"""가먼트 프린터 Agent — dps-store API 풀링 → 디자인/작업지시서 두 종 출력."""
 
 import logging
 import os
@@ -13,6 +13,7 @@ import config
 from api_client import GarmentApiClient
 from auth import authenticate
 from processor import process_file
+from work_order_builder import WorkOrderJob, build_work_order_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,11 @@ def _make_filename(job: dict) -> str:
     seqno = job.get("wepnpSeqno", "")
     ext = job.get("designFileType", "PDF").lower()
     return f"{order_number}_{seqno}_디자인.{ext}"
+
+
+def _is_image(path: str) -> bool:
+    """작업지시서 미리보기로 쓸 수 있는 이미지 파일인지 (PNG/JPG)."""
+    return os.path.splitext(path)[1].lower() in (".png", ".jpg", ".jpeg")
 
 
 class AgentWorker:
@@ -151,46 +157,115 @@ class AgentWorker:
                 waited += 1
 
     def _process_job(self, job: dict):
+        """큐 1건 처리 — 지시서 먼저, 가먼트 나중 (두 토글/pending 독립)."""
         job_id = job["id"]
         url = job["designFileUrl"]
         filename = _make_filename(job)
         download_path = os.path.join(config.DOWNLOAD_DIR, filename)
 
-        logger.info("다운로드: %s", filename)
+        garment_pending = bool(job.get("garmentPending", True))
+        work_order_pending = bool(job.get("workOrderPending", False))
 
+        # 클라이언트 토글로 거름 — 서버에서는 두 sub 모두 PENDING이지만 PC가 OFF면 건드리지 않는다.
+        do_work_order = work_order_pending and config.WORK_ORDER_ENABLED and config.WORK_ORDER_PRINTER_NAME
+        do_garment = garment_pending and config.GARMENT_ENABLED and config.GARMENT_PRINTER_NAME
+
+        if not do_work_order and not do_garment:
+            logger.info("스킵 (둘 다 OFF 또는 pending 아님): %s", filename)
+            return
+
+        # 디자인 파일 다운로드 — 양쪽 모두 PNG 미리보기/출력에 필요
+        logger.info("다운로드: %s", filename)
         if not _download_pdf(url, download_path):
-            self._report_failed(job_id, "PDF 다운로드 실패")
+            # 다운로드 실패 시 활성화된 작업만 failed 보고
+            if do_work_order:
+                self._report_failed(job_id, "workOrder", "디자인 파일 다운로드 실패")
+            if do_garment:
+                self._report_failed(job_id, "garment", "디자인 파일 다운로드 실패")
             _fire(self.on_error, filename)
             return
 
         _fire(self.on_downloaded, filename)
 
-        try:
-            logger.info("출력 시작: %s", filename)
-            process_file(download_path)
-            self._report_printed(job_id)
-            logger.info("출력 완료: %s", filename)
-            _fire(self.on_done, filename)
-        except Exception as e:
-            logger.error("출력 실패: %s — %s", filename, e)
-            self._report_failed(job_id, str(e))
-            # 파일을 error 폴더로 이동
-            error_dest = os.path.join(config.ERROR_DIR, filename)
-            if os.path.exists(download_path):
-                shutil.move(download_path, error_dest)
+        any_error = False
+
+        # ── 1. 작업지시서 출력 (지시서 먼저) ──
+        if do_work_order:
+            try:
+                logger.info("작업지시서 PDF 조립: %s", filename)
+                wo_meta = job.get("workOrder") or {}
+                wo_pdf = os.path.join(
+                    config.DOWNLOAD_DIR,
+                    f"{job.get('orderNumber','unknown')}_{job.get('wepnpSeqno','')}_지시서.pdf",
+                )
+                build_work_order_pdf(
+                    WorkOrderJob(
+                        order_number=job.get("orderNumber", ""),
+                        product_name=job.get("productName", ""),
+                        option_name=job.get("optionName"),
+                        quantity=int(job.get("quantity", 1)),
+                        wepnp_seqno=job.get("wepnpSeqno", ""),
+                        tenant_name=wo_meta.get("tenantName", ""),
+                        brand_name=wo_meta.get("brandName", ""),
+                        printed_by=wo_meta.get("printedBy", ""),
+                        work_url=wo_meta.get("workUrl", ""),
+                        preview_image_path=download_path if _is_image(download_path) else None,
+                    ),
+                    wo_pdf,
+                )
+                from printer import print_pdf_general
+
+                print_pdf_general(wo_pdf, config.WORK_ORDER_PRINTER_NAME)
+                self._report_printed(job_id, "workOrder")
+                logger.info("작업지시서 출력 완료: %s", filename)
+            except Exception as e:
+                any_error = True
+                logger.exception("작업지시서 출력 실패: %s", filename)
+                self._report_failed(job_id, "workOrder", str(e))
+
+        # ── 2. 가먼트 디자인 출력 (가먼트 나중, quantity번 반복) ──
+        if do_garment:
+            qty = max(1, int(job.get("quantity", 1)))
+            try:
+                logger.info("가먼트 출력 시작: %s (x%d)", filename, qty)
+                for n in range(qty):
+                    if not self._running:
+                        raise RuntimeError("사용자 중지 요청")
+                    logger.info("  [%d/%d]", n + 1, qty)
+                    process_file(download_path)
+                    # process_file은 성공 시 done/으로 옮긴다 — 다음 회차 위해 복사본 복원 필요
+                    if n + 1 < qty:
+                        done_path = os.path.join(config.DONE_DIR, os.path.basename(download_path))
+                        if os.path.exists(done_path):
+                            shutil.copy(done_path, download_path)
+                self._report_printed(job_id, "garment")
+                logger.info("가먼트 출력 완료: %s", filename)
+                _fire(self.on_done, filename)
+            except Exception as e:
+                any_error = True
+                logger.exception("가먼트 출력 실패: %s", filename)
+                self._report_failed(job_id, "garment", str(e))
+                error_dest = os.path.join(config.ERROR_DIR, filename)
+                if os.path.exists(download_path):
+                    try:
+                        shutil.move(download_path, error_dest)
+                    except Exception:
+                        pass
+
+        if any_error:
             _fire(self.on_error, filename)
 
-    def _report_printed(self, job_id: str):
+    def _report_printed(self, job_id: str, target: str):
         try:
-            self._client.mark_printed(job_id)
+            self._client.mark_printed(job_id, target)
         except Exception as e:
-            logger.error("출력 완료 보고 실패: %s", e)
+            logger.error("출력 완료 보고 실패 (%s): %s", target, e)
 
-    def _report_failed(self, job_id: str, reason: str):
+    def _report_failed(self, job_id: str, target: str, reason: str):
         try:
-            self._client.mark_failed(job_id, reason)
+            self._client.mark_failed(job_id, target, reason)
         except Exception as e:
-            logger.error("출력 실패 보고 실패: %s", e)
+            logger.error("출력 실패 보고 실패 (%s): %s", target, e)
 
 
 def _fire(cb, *args):

@@ -26,19 +26,23 @@ class GarmentApiClient:
         resp.raise_for_status()
         return resp.json()
 
-    def mark_printed(self, job_id: str):
-        """출력 완료 보고."""
+    def mark_printed(self, job_id: str, target: str):
+        """출력 완료 보고. target: "garment" | "workOrder"."""
         resp = self.session.post(
             f"{self.base_url}/api/printer/garment/{job_id}/printed",
+            json={"target": target},
             timeout=10,
         )
         resp.raise_for_status()
 
-    def mark_failed(self, job_id: str, reason: str = ""):
-        """출력 실패 보고."""
+    def mark_failed(self, job_id: str, target: str, reason: str = ""):
+        """출력 실패 보고. target: "garment" | "workOrder"."""
+        body = {"target": target}
+        if reason:
+            body["reason"] = reason
         resp = self.session.post(
             f"{self.base_url}/api/printer/garment/{job_id}/failed",
-            json={"reason": reason} if reason else None,
+            json=body,
             timeout=10,
         )
         resp.raise_for_status()
