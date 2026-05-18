@@ -47,6 +47,8 @@ jobs:
             --hidden-import=charset_normalizer `
             --hidden-import=idna `
             --collect-all customtkinter `
+            --collect-all reportlab `
+            --collect-all qrcode `
             --collect-submodules gui `
             --add-data "${{ steps.poppler.outputs.bin }};poppler" `
             --add-data "assets/fonts;assets/fonts" `

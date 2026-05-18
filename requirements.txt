@@ -4,4 +4,6 @@ Pillow
 pywin32
 customtkinter
 requests
+reportlab
+qrcode
 pyinstaller
