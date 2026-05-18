@@ -251,8 +251,60 @@ class SettingsPanel(ctk.CTkFrame):
     # ── 프린터 ──────────────────────────────
     def _build_printer(self, parent) -> None:
         parent.grid_columnconfigure(1, weight=1)
-        self._printer_name = self._entry(parent, "프린터명(들)", config.PRINTER_NAME, 0)
+
+        ctk.CTkLabel(parent, text="프린터명(들)", font=ctk.CTkFont(family=_font_family(), size=11)).grid(
+            row=0, column=0, sticky="w", pady=2
+        )
+
+        printer_row = ctk.CTkFrame(parent, fg_color="transparent")
+        printer_row.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=2)
+        printer_row.grid_columnconfigure(0, weight=1)
+
+        # 다중 프린터(쉼표 구분) 지원 — 직접 입력 유지
+        self._printer_name = ctk.CTkEntry(printer_row, font=ctk.CTkFont(family=_font_family(), size=11))
+        self._printer_name.grid(row=0, column=0, sticky="ew")
+        self._printer_name.insert(0, config.PRINTER_NAME)
+
+        # 설치된 프린터 목록 선택 → Entry 값 교체
+        self._printer_menu = ctk.CTkOptionMenu(
+            printer_row,
+            values=["선택..."],
+            width=90,
+            font=ctk.CTkFont(family=_font_family(), size=10),
+            command=self._on_printer_picked,
+        )
+        self._printer_menu.set("선택...")
+        self._printer_menu.grid(row=0, column=1, padx=(4, 0))
+
+        ctk.CTkButton(
+            printer_row,
+            text="↻",
+            width=28,
+            font=ctk.CTkFont(family=_font_family(), size=11),
+            command=self._refresh_printers,
+        ).grid(row=0, column=2, padx=(2, 0))
+
         self._printer_mode = self._combo(parent, "출력 모드", ["direct", "gtx4cmd"], config.PRINTER_MODE, 1)
+
+        # 초기 로드 (Windows에서만 실제 목록 채워짐)
+        self._refresh_printers()
+
+    def _refresh_printers(self) -> None:
+        """설치된 프린터 목록을 다시 읽어 OptionMenu에 반영한다."""
+        from printer import list_printers
+
+        printers = list_printers()
+        values = printers if printers else ["(설치된 프린터 없음)"]
+        self._printer_menu.configure(values=values)
+        self._printer_menu.set("선택...")
+
+    def _on_printer_picked(self, name: str) -> None:
+        """OptionMenu에서 프린터를 선택했을 때 Entry 값을 교체한다."""
+        if not name or name in ("선택...", "(설치된 프린터 없음)"):
+            return
+        self._printer_name.delete(0, "end")
+        self._printer_name.insert(0, name)
+        self._printer_menu.set("선택...")
 
     # ── 폴더 ────────────────────────────────
     def _build_folders(self, parent) -> None:

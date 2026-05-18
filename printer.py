@@ -1,4 +1,5 @@
 import logging
+import sys
 
 import win32print
 import win32ui
@@ -7,6 +8,23 @@ from PIL import Image, ImageWin
 import config
 
 logger = logging.getLogger(__name__)
+
+
+def list_printers() -> list[str]:
+    """Windows에 설치된 프린터 이름 목록을 반환한다.
+
+    Windows 외 환경(개발/DRYRUN)에서는 빈 리스트를 반환한다.
+    """
+    if sys.platform != "win32":
+        return []
+    try:
+        printers = win32print.EnumPrinters(
+            win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+        )
+        return [p[2] for p in printers]
+    except Exception:
+        logger.exception("프린터 목록 조회 실패")
+        return []
 
 
 def print_image(image: Image.Image, printer_name: str = None):
