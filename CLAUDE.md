@@ -31,13 +31,14 @@ GTX4CMD 사용법은 `20260318-gtx4-source.md`(분석 결과)와 원본 PDF(`GTX
 
 ## 모듈 개요
 
-- Brother GTX-4 가먼트 프린터 자동 출력 Windows 프로그램
+- Brother GTX-4 가먼트 프린터 + 일반 작업지시서 프린터 자동 출력 Windows 프로그램
 - Watcher + Agent 통합 단일 EXE (PyInstaller)
 - 빌드 산출물: `equip-sync-g-vX.Y.Z.exe` (태그 push 시 GitHub Actions 자동 빌드)
-- 출력 모드:
-  - `direct` — `win32print`로 직접 호출 (드라이버 일반 흐름)
-  - `gtx4cmd` — `GTX4CMD.exe` 경유 (플래튼·잉크·매수 등 GTX-4 전용 파라미터 활용)
-- 다중 프린터 지원: `config.ini`의 `[printer] name`에 쉼표로 구분해 여러 대 입력
+- **두 종 출력**(2026-05-18~):
+  - **가먼트 디자인**(PNG/PDF) → GTX-4 가먼트 프린터 (mode: `direct` | `gtx4cmd`)
+  - **작업지시서**(PDF) → 일반 A4 레이저/잉크젯 프린터 — reportlab + qrcode로 클라이언트가 PDF 즉시 조립
+- 두 출력은 **독립 ON/OFF 토글** (`config.ini` `[printer] garment_enabled` / `work_order_enabled`)
+- 다중 가먼트 프린터 지원: `[printer] garment_name`에 쉼표로 구분
 
 ## 디렉토리 구조 (2026-05-18 평탄화)
 
@@ -53,17 +54,41 @@ equip-sync-g-module/
 ├── main.py                        # 진입점
 ├── config.py                      # config.ini 로드·자동 생성 (PRINTER_NAMES 다중 지원)
 ├── printer.py                     # win32 출력 + list_printers()
-├── agent.py                       # API 풀링 → 가먼트 PDF 다운로드 & 출력
-├── api_client.py
+├── agent.py                       # API 풀링 → 디자인+지시서 두 종 출력
+├── api_client.py                  # mark_printed/failed에 target("garment"|"workOrder") 파라미터
 ├── auth.py                        # Device Auth
 ├── watcher.py                     # 폴더 감시 모드
-├── processor.py                   # 파일 처리
+├── processor.py                   # 가먼트 디자인 출력 흐름 (direct / gtx4cmd)
+├── work_order_builder.py          # 작업지시서 PDF 조립 (reportlab + qrcode + 한국어 CIDFont)
 ├── gtx4cmd.py                     # GTX4CMD.exe 래퍼
 ├── xml_builder.py                 # GTX4CMD XML 파라미터 빌드
-├── build.bat
-├── requirements.txt
+├── build.bat                      # PyInstaller + --collect-all reportlab/qrcode 포함
+├── requirements.txt               # reportlab, qrcode 추가
 └── CLAUDE.md
 ```
+
+### 두 종 출력 흐름 (2026-05-18~)
+
+```
+[GET /api/printer/garment] → jobs[]
+  · garmentPending, workOrderPending (서버 sub status)
+  · workOrder: { tenantName, brandName, printedBy, workUrl } (작업지시서 메타)
+
+[agent._process_job(job)]
+  ├─ 디자인 PNG/PDF 다운로드 (양쪽 출력 모두 필요)
+  ├─ do_work_order = workOrderPending && config.WORK_ORDER_ENABLED && config.WORK_ORDER_PRINTER_NAME
+  ├─ do_garment   = garmentPending   && config.GARMENT_ENABLED   && config.GARMENT_PRINTER_NAME
+  │
+  ├─ [지시서 먼저]
+  │     build_work_order_pdf() → printer.print_pdf_general(일반 프린터)
+  │     POST /api/printer/garment/{id}/printed  body: {"target": "workOrder"}
+  │
+  └─ [가먼트 나중, quantity번 반복]
+        processor.process_file() → direct 또는 gtx4cmd
+        POST /api/printer/garment/{id}/printed  body: {"target": "garment"}
+```
+
+토글 OFF인 출력은 해당 sub status를 PENDING으로 그대로 유지 → 다른 PC(ON 상태)가 처리.
 
 ## 개발·릴리즈 흐름
 
