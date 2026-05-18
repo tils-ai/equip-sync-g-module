@@ -1,17 +1,79 @@
-# CLAUDE.md - equip-sync-g-module (가먼트 프린터)
+# CLAUDE.md — equip-sync-g-module (가먼트 프린터)
 
-이 레포의 Claude 컨텍스트와 설계 문서는 **`dps-store`** 프로젝트에서 통합 관리한다.
+이 레포의 설계·운영 문서는 **`dps-store`** 프로젝트에서 통합 관리한다. Claude 세션을 이 레포에서 실행하더라도 아래 문서를 우선 참조하라.
 
-- dps-store 로컬 경로: `~/Workspace/dps-store`
-- 외부 레포 테이블·통합 정책: `dps-store/CLAUDE.md` 의 "관련 외부 레포" 섹션
-- 관련 설계 문서: `dps-store/docs/print/*` (가먼트 모듈은 `20260318-gtx4-*.md`, `20260402-garment-print-api.md`, `20260511-equipment-gui-*.md`)
+## 신규 담당자: 시작 가이드
 
-이 레포 단독 작업 시에도 위 문서를 우선 참조하라.
+이 모듈에 합류했다면 아래 순서로 읽으면 작업을 시작할 수 있다. **다른 문서를 무작위로 열지 말고 이 순서대로 시작하라.**
 
-## 간단 정리 (메모)
+1. `dps-store/docs/print/README.md` — 전체 인덱스 + "가먼트 프린터 신규 담당자" 섹션
+2. `dps-store/docs/print/20260511-equipment-gui-unification.md` — 3개 모듈 공통 아키텍처 (Watcher+Agent 단일 EXE)
+3. `dps-store/docs/print/20260511-equipment-gui-spec.md` — GUI 공통 규칙·코드 샘플
+4. `dps-store/docs/print/20260318-gtx4-module-design.md` — **본 모듈 메인 설계서** (GTX4CMD 연동, 다중 프린터, 플래튼/잉크 파라미터)
+5. `dps-store/docs/print/20260402-garment-print-api.md` — 서버 API (Jarvis PDF, 자동 출력 큐)
+6. `dps-store/docs/print/20260318-gtx4-source.md` — GTX4CMD.exe 커맨드라인 옵션 레퍼런스
+7. `dps-store/docs/print/20260511-equipment-consistency-audit.md` — l/m 모듈 대비 본 모듈의 격차
+
+추가로 참고:
+- `dps-store/docs/print/20260310-printer-client-api.md` — 서버 측 클라이언트 API 전체 명세 (Device Auth, 큐 상태 전이)
+- `dps-store/CLAUDE.md`의 "관련 외부 레포" 섹션
+
+## 대외비 자료 인계 (필수)
+
+본 모듈은 **Brother GTX-4 제조사 자료**를 사용한다.
+
+- `.source/` 폴더의 `GTX4CMD.exe`, `GTX4Api.dll`, 샘플 PDF는 **git 미추적** (`.gitignore` 처리)
+- **릴리즈 EXE에도 포함하지 않는다** (라이선스/유출 방지)
+- 신규 담당자는 사내 채널로 별도 인계 받아 `.source/` 폴더에 직접 배치 필요
+- `.history/` 도 동일하게 git 미추적 (IDE 작업 이력)
+
+GTX4CMD 사용법은 `20260318-gtx4-source.md`(분석 결과)와 원본 PDF(`GTX4_Commandline_Ver.2.6.0_E.pdf`) 양쪽을 참조한다.
+
+## 모듈 개요
 
 - Brother GTX-4 가먼트 프린터 자동 출력 Windows 프로그램
-- Watcher + Agent 통합 단일 exe (PyInstaller)
-- 빌드 산출물: `equip-sync-g-vX.Y.Z.exe` (태그 push 시 GitHub Actions에서 자동 빌드)
-- 출력 모드: `direct` (win32print) / `gtx4cmd` (GTX4CMD.exe 경유)
-- `.source/` 폴더의 GTX4CMD.exe / GTX4Api.dll / PDF는 **대외비** (git 미추적, 릴리즈 비포함)
+- Watcher + Agent 통합 단일 EXE (PyInstaller)
+- 빌드 산출물: `equip-sync-g-vX.Y.Z.exe` (태그 push 시 GitHub Actions 자동 빌드)
+- 출력 모드:
+  - `direct` — `win32print`로 직접 호출 (드라이버 일반 흐름)
+  - `gtx4cmd` — `GTX4CMD.exe` 경유 (플래튼·잉크·매수 등 GTX-4 전용 파라미터 활용)
+- 다중 프린터 지원: `config.ini`의 `[printer] name`에 쉼표로 구분해 여러 대 입력
+
+## 디렉토리 구조 (2026-05-18 평탄화)
+
+```
+equip-sync-g-module/
+├── .github/workflows/build.yml    # tag push → 자동 빌드 & Release
+├── .source/                       # ❗대외비 (GTX4CMD.exe 등, git 미추적)
+├── assets/fonts/                  # Pretendard 번들
+├── gui/                           # 슬라이드 패널, 헤더, 카드, 로그 박스
+│   ├── app.py
+│   ├── settings_panel.py          # 프린터명 + 목록 OptionMenu + 새로고침
+│   └── ...
+├── main.py                        # 진입점
+├── config.py                      # config.ini 로드·자동 생성 (PRINTER_NAMES 다중 지원)
+├── printer.py                     # win32 출력 + list_printers()
+├── agent.py                       # API 풀링 → 가먼트 PDF 다운로드 & 출력
+├── api_client.py
+├── auth.py                        # Device Auth
+├── watcher.py                     # 폴더 감시 모드
+├── processor.py                   # 파일 처리
+├── gtx4cmd.py                     # GTX4CMD.exe 래퍼
+├── xml_builder.py                 # GTX4CMD XML 파라미터 빌드
+├── build.bat
+├── requirements.txt
+└── CLAUDE.md
+```
+
+## 개발·릴리즈 흐름
+
+1. 로컬에서 코드 수정 (`python3 -m py_compile` 로 macOS에서 문법 검증 가능)
+2. `dps-store/CLAUDE.md`의 커밋 규칙 동일 적용 (관련 파일 3개씩, `feat:`/`fix:`/`refactor:`)
+3. `git tag vX.Y.Z && git push origin vX.Y.Z` → GitHub Actions가 단일 EXE 빌드 + Release 자동 생성
+4. 과거 태그/릴리즈는 최신 2개만 유지 (`gh release delete <tag> --cleanup-tag --yes`)
+
+## 서버 측 변경이 필요한 경우
+
+가먼트 출력 큐·API 명세는 `dps-store`에 있으므로 양쪽 동시 변경이 필요할 수 있다. 그 경우:
+- `dps-store/app/api/printer/garment/*` 와 본 모듈의 `agent.py` / `api_client.py` 를 함께 본다
+- API 인터페이스 변경 시 `dps-store/docs/print/20260402-garment-print-api.md` 동기 업데이트
