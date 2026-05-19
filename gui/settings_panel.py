@@ -339,15 +339,21 @@ class SettingsPanel(ctk.CTkFrame):
 
         return entry, menu
 
-    def _refresh_printers_into(self, menu) -> None:
+    def _refresh_printers_into(self, menu, exclude: list[str] | None = None) -> None:
         from printer import list_printers
         printers = list_printers()
+        if exclude:
+            excluded = {n.strip() for n in exclude if n.strip()}
+            printers = [p for p in printers if p not in excluded]
         values = printers if printers else ["(설치된 프린터 없음)"]
         menu.configure(values=values)
         menu.set("선택...")
 
     def _refresh_garment_printers(self) -> None:
-        self._refresh_printers_into(self._garment_menu)
+        # 이미 입력란에 들어 있는 프린터는 드롭다운에서 제외
+        current = self._garment_name.get().strip() if hasattr(self, "_garment_name") else ""
+        excluded = [n.strip() for n in current.split(",") if n.strip()]
+        self._refresh_printers_into(self._garment_menu, exclude=excluded)
 
     def _refresh_work_order_printers(self) -> None:
         self._refresh_printers_into(self._work_order_menu)
@@ -374,8 +380,9 @@ class SettingsPanel(ctk.CTkFrame):
         menu.set("선택...")
 
     def _on_garment_picked(self, name: str) -> None:
-        # 가먼트는 다중 입력 — append
+        # 가먼트는 다중 입력 — append + 드롭다운 재구성(추가된 프린터 제외)
         self._append_into(self._garment_name, self._garment_menu, name)
+        self._refresh_garment_printers()
 
     def _on_work_order_picked(self, name: str) -> None:
         # 지시서는 단일 — 덮어쓰기
