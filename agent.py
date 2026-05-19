@@ -72,6 +72,9 @@ class AgentWorker:
         self.on_done: Optional[Callable[[str], None]] = None
         self.on_error: Optional[Callable[[str], None]] = None
         self.on_auth_expired: Optional[Callable[[], None]] = None
+        # 카드 표시용 — 최근 풀링 응답 기준 잔여 잡 수 / 현재 잡 처리 중 여부
+        self._pending_count = 0
+        self._processing = False
 
     @property
     def running(self) -> bool:
@@ -81,6 +84,16 @@ class AgentWorker:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def pending_count(self) -> int:
+        """가장 최근 풀링 응답에서 받은 잡 중 아직 처리 안 한 개수."""
+        return self._pending_count
+
+    @property
+    def is_processing(self) -> bool:
+        """현재 _process_job 실행 중 여부."""
+        return self._processing
 
     def start(self):
         """Agent 시작 — API 키 없으면 Device Auth 자동 트리거."""
@@ -127,6 +140,7 @@ class AgentWorker:
     def _loop(self):
         empty_count = 0
         base_interval = max(config.API_POLL_INTERVAL, 5)
+        HEARTBEAT_EVERY = 10  # 빈 폴링 N회마다 heartbeat 로그
 
         while self._running:
             try:
@@ -139,14 +153,26 @@ class AgentWorker:
                     base_interval = server_interval
 
                 if not jobs:
+                    self._pending_count = 0
+                    if empty_count == 0:
+                        logger.info("풀링 중 — 대기 큐 없음")
                     empty_count += 1
+                    if empty_count % HEARTBEAT_EVERY == 0:
+                        logger.info(
+                            "풀링 중 — 대기 큐 없음 (연속 %d회, %d초 간격)",
+                            empty_count, base_interval,
+                        )
                 else:
+                    if empty_count > 0:
+                        logger.info("풀링 — 잡 %d건 도착", len(jobs))
                     empty_count = 0
+                    self._pending_count = len(jobs)
                     for job in jobs:
                         if not self._running:
                             break
                         # 단일 잡 처리 중 발생한 예외가 풀링 루프 전체를 죽이지 않도록 격리.
                         # 풀링 루프가 죽으면 이미 PRINTING 으로 마킹된 잡이 영원히 회수되지 않음.
+                        self._processing = True
                         try:
                             self._process_job(job)
                         except Exception:
@@ -154,6 +180,9 @@ class AgentWorker:
                                 "잡 처리 중 예외 — 다음 잡으로 진행 (job_id=%s)",
                                 job.get("id"),
                             )
+                        finally:
+                            self._processing = False
+                            self._pending_count = max(0, self._pending_count - 1)
 
             except requests.RequestException as e:
                 logger.error("풀링 오류: %s", e)
