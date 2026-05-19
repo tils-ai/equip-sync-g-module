@@ -16,11 +16,26 @@ class GarmentApiClient:
         self.session.headers["Authorization"] = f"Bearer {api_key}"
         self.session.headers["X-Client-Version"] = VERSION
 
-    def get_pending_jobs(self, limit: int = 10) -> dict:
-        """미출력 가먼트 큐 조회."""
+    def get_pending_jobs(
+        self,
+        limit: int = 10,
+        garment_enabled: bool = True,
+        work_order_enabled: bool = True,
+    ) -> dict:
+        """미출력 가먼트 큐 조회.
+
+        garment_enabled / work_order_enabled — 클라이언트의 capability.
+        서버는 capable 한 sub 만 OR 조건/선점 대상으로 사용하므로,
+        예: work_order_enabled=False 인 PC 가 work_order 만 PENDING 인 큐에 묶여 무한 루프 도는 문제를 차단.
+        """
         resp = self.session.get(
             f"{self.base_url}/api/printer/garment",
-            params={"status": "pending", "limit": limit},
+            params={
+                "status": "pending",
+                "limit": limit,
+                "garment_enabled": "true" if garment_enabled else "false",
+                "work_order_enabled": "true" if work_order_enabled else "false",
+            },
             timeout=15,
         )
         resp.raise_for_status()

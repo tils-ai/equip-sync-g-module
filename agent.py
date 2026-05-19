@@ -144,7 +144,12 @@ class AgentWorker:
 
         while self._running:
             try:
-                data = self._client.get_pending_jobs()
+                # 클라이언트 capability 를 서버에 전달 — work_order_enabled=false 인 PC 가
+                # workOrder 만 PENDING 인 큐를 받아 무한 스킵 루프 도는 문제 차단.
+                data = self._client.get_pending_jobs(
+                    garment_enabled=bool(config.GARMENT_ENABLED and config.GARMENT_PRINTER_NAME),
+                    work_order_enabled=bool(config.WORK_ORDER_ENABLED and config.WORK_ORDER_PRINTER_NAME),
+                )
                 jobs = data.get("jobs", [])
 
                 # 서버 지정 풀링 간격 반영
