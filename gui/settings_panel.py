@@ -42,7 +42,8 @@ def _open_in_editor(path: Path) -> None:
 
 
 class SettingsPanel(ctk.CTkFrame):
-    WIDTH = 400
+    WIDTH = 520
+    WRAP = 460
     ANIM_MS = 220
     ANIM_STEPS = 12
 
@@ -206,7 +207,7 @@ class SettingsPanel(ctk.CTkFrame):
             anchor="w",
             font=ctk.CTkFont(family=_font_family(), size=10),
             text_color=theme.TEXT_MUTED,
-            wraplength=320,
+            wraplength=self.WRAP,
             justify="left",
         )
         self._pair_msg.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
@@ -252,13 +253,30 @@ class SettingsPanel(ctk.CTkFrame):
     def _build_printer(self, parent) -> None:
         parent.grid_columnconfigure(1, weight=1)
 
-        # 가먼트 디자인 프린터
+        # 가먼트 디자인 프린터 — 콤마 구분 다중 입력 가능
+        garment_value = ", ".join(config.GARMENT_PRINTER_NAMES) if config.GARMENT_PRINTER_NAMES else config.GARMENT_PRINTER_NAME
         self._garment_name, self._garment_menu = self._printer_row(
-            parent, "가먼트 프린터(들)", config.GARMENT_PRINTER_NAME, row=0,
+            parent, "가먼트 프린터(들)", garment_value, row=0,
             on_pick=self._on_garment_picked, refresh=self._refresh_garment_printers,
         )
+        # 도움말
+        ctk.CTkLabel(
+            parent,
+            text="여러 대는 콤마(,)로 구분. 드롭다운 선택 시 끝에 추가됩니다.",
+            font=ctk.CTkFont(family=_font_family(), size=10),
+            text_color=theme.TEXT_MUTED,
+            anchor="w",
+            wraplength=self.WRAP,
+            justify="left",
+        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+
+        # 분배 방식 — 2대 이상일 때만 의미 있음
+        dispatch_opts = ["round_robin: 순차 회전", "single: 첫 번째만 사용"]
+        current_dispatch = dispatch_opts[0] if config.GARMENT_DISPATCH == "round_robin" else dispatch_opts[1]
+        self._garment_dispatch = self._combo(parent, "분배 방식", dispatch_opts, current_dispatch, 2)
+
         self._printer_mode = self._combo(
-            parent, "가먼트 출력 모드", ["direct", "gtx4cmd"], config.GARMENT_MODE, 1
+            parent, "가먼트 출력 모드", ["direct", "gtx4cmd"], config.GARMENT_MODE, 3
         )
         self._garment_enabled = ctk.CTkSwitch(
             parent, text="가먼트 자동 출력", onvalue=True, offvalue=False,
@@ -267,11 +285,11 @@ class SettingsPanel(ctk.CTkFrame):
             self._garment_enabled.select()
         else:
             self._garment_enabled.deselect()
-        self._garment_enabled.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 8))
+        self._garment_enabled.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 8))
 
         # 작업지시서 프린터
         self._work_order_name, self._work_order_menu = self._printer_row(
-            parent, "지시서 프린터", config.WORK_ORDER_PRINTER_NAME, row=3,
+            parent, "지시서 프린터", config.WORK_ORDER_PRINTER_NAME, row=5,
             on_pick=self._on_work_order_picked, refresh=self._refresh_work_order_printers,
             allow_blank=True,
         )
@@ -282,7 +300,7 @@ class SettingsPanel(ctk.CTkFrame):
             self._work_order_enabled.select()
         else:
             self._work_order_enabled.deselect()
-        self._work_order_enabled.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self._work_order_enabled.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         # 초기 로드 (Windows에서만 실제 목록 채워짐)
         self._refresh_garment_printers()
@@ -306,7 +324,7 @@ class SettingsPanel(ctk.CTkFrame):
         menu = ctk.CTkOptionMenu(
             row_frame,
             values=["선택..."],
-            width=90,
+            width=120,
             font=ctk.CTkFont(family=_font_family(), size=10),
             command=on_pick,
         )
@@ -341,10 +359,26 @@ class SettingsPanel(ctk.CTkFrame):
         entry.insert(0, name)
         menu.set("선택...")
 
+    def _append_into(self, entry, menu, name: str) -> None:
+        """다중 입력용 — 끝에 콤마로 추가. 중복은 무시."""
+        if not name or name in ("선택...", "(설치된 프린터 없음)"):
+            return
+        current = entry.get().strip()
+        names = [n.strip() for n in current.split(",") if n.strip()]
+        if name in names:
+            menu.set("선택...")
+            return
+        names.append(name)
+        entry.delete(0, "end")
+        entry.insert(0, ", ".join(names))
+        menu.set("선택...")
+
     def _on_garment_picked(self, name: str) -> None:
-        self._pick_into(self._garment_name, self._garment_menu, name)
+        # 가먼트는 다중 입력 — append
+        self._append_into(self._garment_name, self._garment_menu, name)
 
     def _on_work_order_picked(self, name: str) -> None:
+        # 지시서는 단일 — 덮어쓰기
         self._pick_into(self._work_order_name, self._work_order_menu, name)
 
     # ── 폴더 ────────────────────────────────
@@ -369,10 +403,10 @@ class SettingsPanel(ctk.CTkFrame):
         ctk.CTkButton(
             parent,
             text="찾기",
-            width=50,
+            width=60,
             font=ctk.CTkFont(family=_font_family(), size=10),
             command=self._browse_exe,
-        ).grid(row=0, column=2, padx=(0, 0), pady=2)
+        ).grid(row=0, column=2, padx=(0, 2), pady=2)
 
         platen_opts = ["0: 16x21", "1: 16x18", "2: 14x16", "3: 10x12", "4: 7x8"]
         current_platen = platen_opts[config.PLATEN_SIZE] if config.PLATEN_SIZE < len(platen_opts) else platen_opts[0]
@@ -404,7 +438,7 @@ class SettingsPanel(ctk.CTkFrame):
             text=str(config.INI_PATH),
             font=ctk.CTkFont(family=_font_family(), size=10),
             anchor="w",
-            wraplength=320,
+            wraplength=self.WRAP,
             justify="left",
         ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 4))
 
@@ -435,6 +469,9 @@ class SettingsPanel(ctk.CTkFrame):
             config.save_value("printer", "garment_name", self._garment_name.get())
             config.save_value("printer", "garment_mode", self._printer_mode.get())
             config.save_value("printer", "garment_enabled", "true" if self._garment_enabled.get() else "false")
+            # 분배 방식 — 콤보 라벨 앞부분만 추출
+            dispatch_val = self._garment_dispatch.get().split(":")[0].strip()
+            config.save_value("printer", "garment_dispatch", dispatch_val)
             config.save_value("printer", "work_order_name", self._work_order_name.get())
             config.save_value("printer", "work_order_enabled", "true" if self._work_order_enabled.get() else "false")
             # 하위호환: 기존 name/mode도 가먼트 키와 동기화
