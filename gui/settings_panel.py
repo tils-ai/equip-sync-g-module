@@ -334,10 +334,11 @@ class SettingsPanel(ctk.CTkFrame):
         if not hide_entry:
             entry.grid(row=0, column=0, sticky="ew")
 
+        # hide_entry 인 경우 menu 가 가로폭을 차지 → 최소 너비 넉넉히. 아니면 120.
         menu = ctk.CTkOptionMenu(
             row_frame,
             values=["선택..."],
-            width=None if hide_entry else 120,
+            width=240 if hide_entry else 120,
             font=ctk.CTkFont(family=_font_family(), size=10),
             command=on_pick,
         )
