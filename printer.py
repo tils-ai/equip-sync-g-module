@@ -27,6 +27,23 @@ def list_printers() -> list[str]:
         return []
 
 
+def _ensure_printer_installed(printer_name: str) -> None:
+    """설치된 프린터 목록에 printer_name 이 있는지 검증.
+
+    Windows 외 환경에서는 list_printers 가 빈 리스트라 검증을 스킵한다 (개발용).
+    """
+    if not printer_name:
+        raise RuntimeError("프린터 이름이 비어 있습니다.")
+    installed = list_printers()
+    if not installed:
+        return
+    if printer_name not in installed:
+        raise RuntimeError(
+            f"설정된 프린터를 찾을 수 없습니다: '{printer_name}'. "
+            f"설치된 프린터 목록: {installed}"
+        )
+
+
 def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
     """PDF 파일을 일반 Windows 프린터로 출력 (작업지시서용).
 
@@ -35,6 +52,7 @@ def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
     """
     if not printer_name:
         raise RuntimeError("작업지시서 프린터명이 설정되지 않았습니다.")
+    _ensure_printer_installed(printer_name)
     from pdf2image import convert_from_path
 
     poppler = getattr(config, "POPPLER_PATH", None)
@@ -49,9 +67,18 @@ def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
 def print_image(image: Image.Image, printer_name: str = None):
     """PIL 이미지를 Windows 프린터로 직접 출력한다."""
     printer_name = printer_name or config.PRINTER_NAME
+    _ensure_printer_installed(printer_name)
 
     hdc = win32ui.CreateDC()
-    hdc.CreatePrinterDC(printer_name)
+    try:
+        hdc.CreatePrinterDC(printer_name)
+    except Exception as e:
+        installed = list_printers()
+        raise RuntimeError(
+            f"프린터를 열 수 없습니다: '{printer_name}'. "
+            f"Windows 에서 이 이름의 프린터를 찾지 못했거나 오프라인 상태입니다. "
+            f"설치된 프린터: {installed} (원인: {e})"
+        ) from e
 
     try:
         pw = hdc.GetDeviceCaps(110)   # PHYSICALWIDTH
