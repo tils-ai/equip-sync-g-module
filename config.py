@@ -17,11 +17,12 @@ _DEFAULT_INI = """\
 [printer]
 ; ── 가먼트 디자인 프린터 (Brother GTX-4 등) ──
 ; Windows 설정 > 프린터에서 정확한 이름 확인. 여러 개 지정 시 콤마 구분.
-garment_name = Brother GTX-4
+; 비워두면 가먼트 자동 출력 비활성 (do_garment 가드).
+garment_name =
 ; 가먼트 자동 출력 활성화 (true/false)
 garment_enabled = true
-; 출력 모드: direct (win32print 직접) / gtx4cmd (GTX4CMD.exe 경유)
-garment_mode = direct
+; 출력 모드: gtx4cmd (GTX4CMD.exe 경유, 기본) / direct (win32print 직접)
+garment_mode = gtx4cmd
 ; 다중 프린터 분배 방식: round_robin (작업마다 순차 회전) / single (항상 첫 번째만)
 garment_dispatch = round_robin
 
@@ -32,8 +33,8 @@ work_order_name =
 work_order_enabled = false
 
 ; (deprecated, 하위 호환) — 새 키 garment_name/garment_mode 사용
-name = Brother GTX-4
-mode = direct
+name =
+mode = gtx4cmd
 
 [gtx4cmd]
 ; GTX4CMD.exe 경로 (비워두면 .source 폴더에서 탐색)
@@ -43,10 +44,10 @@ exe_path =
 auto_center = true
 ; 인쇄 위치 (8자리, 앞4=좌측여백, 뒤4=상단여백, 단위 0.1mm; auto_center=false일 때만 사용)
 position = 00000000
-; 인쇄 크기 (8자리, 앞4=너비, 뒤4=높이, 단위 0.1mm; 비워두면 -S 미사용; 설정 시 magnification 무시)
+; 인쇄 크기 (8자리, 앞4=너비, 뒤4=높이, 단위 0.1mm; 비워두면 magnification 사용; 설정 시 magnification 무시)
 size =
-; 배율 (4자리, 단위 0.1%, 1000=100%; 비워두면 -R 미사용; -S와 동시 사용 불가)
-magnification =
+; 배율 (4자리, 단위 0.1%, 1000=100%; size 미지정 시 사용; GTX4CMD print 는 -S/-R 중 하나가 필수이므로 기본 1000)
+magnification = 1000
 ; RGB(255,255,255) 해석: 0=투명, 1=화이트 잉크 (색있는 옷에서 흰 디자인 필요 시 1)
 white_as = 0
 ; ── XML 요소 ──
@@ -152,18 +153,19 @@ _ini = configparser.ConfigParser()
 _ini.read(INI_PATH, encoding="utf-8")
 
 def _parse_printer_names(raw: str) -> list[str]:
-    names = [n.strip() for n in raw.split(",") if n.strip()]
-    return names or ["Brother GTX-4"]
+    """콤마 구분 문자열 → 프린터 이름 리스트. 빈 입력 시 빈 리스트 (강제 기본 프린터 주입 금지)."""
+    return [n.strip() for n in raw.split(",") if n.strip()]
 
 
 # --- printer ---
-# 가먼트 프린터 (디자인 출력) — 신규 키 garment_name 우선, 미설정 시 기존 name 폴백
+# 가먼트 프린터 (디자인 출력) — 신규 키 garment_name 우선, 미설정 시 기존 name 폴백.
+# 둘 다 비어 있으면 GARMENT_PRINTER_NAMES = [] → agent.py 의 do_garment 가드로 자동 출력 스킵.
 GARMENT_PRINTER_NAMES = _parse_printer_names(
-    _ini.get("printer", "garment_name", fallback=_ini.get("printer", "name", fallback="Brother GTX-4"))
+    _ini.get("printer", "garment_name", fallback=_ini.get("printer", "name", fallback=""))
 )
-GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0]
+GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0] if GARMENT_PRINTER_NAMES else ""
 GARMENT_ENABLED = _ini.getboolean("printer", "garment_enabled", fallback=True)
-GARMENT_MODE = _ini.get("printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="direct"))
+GARMENT_MODE = _ini.get("printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="gtx4cmd"))
 # 다중 프린터 분배 방식 — round_robin: 작업마다 순차 회전 / single: 항상 첫 번째만 사용
 GARMENT_DISPATCH = _ini.get("printer", "garment_dispatch", fallback="round_robin").strip().lower()
 if GARMENT_DISPATCH not in ("round_robin", "single"):
@@ -196,12 +198,19 @@ def _load_gtx4cmd() -> dict:
     def _s(key, default=""):
         return _ini.get("gtx4cmd", key, fallback=default).strip()
 
+    # GTX4CMD print 명령은 -S(size) / -R(magnification) 중 하나가 반드시 지정돼야 함 (-3108).
+    # 둘 다 비면 안전 폴백으로 magnification=1000(=100%) 자동 적용.
+    _size = _s("size")
+    _mag = _s("magnification")
+    if not _size and not _mag:
+        _mag = "1000"
+
     return {
         # CLI
         "AUTO_CENTER": _b("auto_center", True),
         "POSITION": _s("position", "00000000") or "00000000",
-        "SIZE": _s("size"),
-        "MAGNIFICATION": _s("magnification"),
+        "SIZE": _size,
+        "MAGNIFICATION": _mag,
         "WHITE_AS": _i("white_as", 0),
         # XML
         "COPIES": _i("copies", 1),
@@ -401,12 +410,12 @@ def reload():
     _ini.read(INI_PATH, encoding="utf-8")
 
     GARMENT_PRINTER_NAMES = _parse_printer_names(
-        _ini.get("printer", "garment_name", fallback=_ini.get("printer", "name", fallback="Brother GTX-4"))
+        _ini.get("printer", "garment_name", fallback=_ini.get("printer", "name", fallback=""))
     )
-    GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0]
+    GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0] if GARMENT_PRINTER_NAMES else ""
     GARMENT_ENABLED = _ini.getboolean("printer", "garment_enabled", fallback=True)
     GARMENT_MODE = _ini.get(
-        "printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="direct")
+        "printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="gtx4cmd")
     )
     WORK_ORDER_PRINTER_NAME = _ini.get("printer", "work_order_name", fallback="").strip()
     WORK_ORDER_ENABLED = _ini.getboolean("printer", "work_order_enabled", fallback=False)
