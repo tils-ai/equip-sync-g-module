@@ -145,10 +145,21 @@ class AgentWorker:
                     for job in jobs:
                         if not self._running:
                             break
-                        self._process_job(job)
+                        # 단일 잡 처리 중 발생한 예외가 풀링 루프 전체를 죽이지 않도록 격리.
+                        # 풀링 루프가 죽으면 이미 PRINTING 으로 마킹된 잡이 영원히 회수되지 않음.
+                        try:
+                            self._process_job(job)
+                        except Exception:
+                            logger.exception(
+                                "잡 처리 중 예외 — 다음 잡으로 진행 (job_id=%s)",
+                                job.get("id"),
+                            )
 
             except requests.RequestException as e:
                 logger.error("풀링 오류: %s", e)
+                empty_count += 1
+            except Exception:
+                logger.exception("풀링 루프 예외 — 다음 주기에 재시도")
                 empty_count += 1
 
             interval = _get_backoff_interval(empty_count, base_interval)
