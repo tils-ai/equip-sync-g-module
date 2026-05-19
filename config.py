@@ -57,8 +57,8 @@ copies = 1
 machine_mode = 0
 ; 해상도 (1=1200dpi x 1200dpi)
 resolution = 1
-; 플래튼 크기: 0=16x21, 1=16x18, 2=14x16, 3=10x12, 4=7x8
-platen_size = 0
+; 플래튼 크기: 0=16x21, 1=16x18, 2=14x16(기본), 3=10x12, 4=7x8
+platen_size = 2
 ; 잉크 조합: 0=Color, 1=White, 2=Color+White, 3=Black
 ink = 0
 ; Eco 모드 (ink=2일 때만): false/true
@@ -216,7 +216,7 @@ def _load_gtx4cmd() -> dict:
         "COPIES": _i("copies", 1),
         "MACHINE_MODE": _i("machine_mode", 0),
         "RESOLUTION": _i("resolution", 1),
-        "PLATEN_SIZE": _i("platen_size", 0),
+        "PLATEN_SIZE": _i("platen_size", 2),
         "INK": _i("ink", 0),
         "ECO_MODE": _b("eco_mode", False),
         "HIGHLIGHT": _i("highlight", 5),
