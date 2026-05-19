@@ -1,6 +1,7 @@
 """GTX4CMD.exe CLI 래퍼 - subprocess로 호출, 리턴 코드 해석."""
 
 import logging
+import os
 import subprocess
 
 import config
@@ -9,7 +10,9 @@ logger = logging.getLogger(__name__)
 
 RETURN_CODES = {
     0: "성공",
-    -1001: "드라이버 파일 없음",
+    -1001: "드라이버 파일 없음 — Brother GTX-4 프린터 드라이버 설치 확인",
+    -1401: "드라이버 파일 없음 — Brother GTX-4 프린터 드라이버/GTX4Api.dll 위치 확인",
+    -1402: "메모리 할당 실패",
     -1403: "프린터를 찾을 수 없거나 드라이버 사용 불가",
     -2001: "PNG 파일이 아니거나 로드 불가",
     -2401: "프린터 미발견 또는 LAN 미연결",
@@ -17,7 +20,15 @@ RETURN_CODES = {
     -3102: "XML 파일 없음",
     -3103: "이미지 파일 없음",
     -3104: "-P와 -A 동시 지정 불가",
+    -3108: "-S 와 -R 동시 지정 불가 또는 둘 다 미지정",
 }
+
+
+def _normalize_returncode(rc: int) -> int:
+    """Windows subprocess 가 음수 종료 코드를 unsigned 32-bit 로 주는 케이스 정규화."""
+    if rc > 0x7FFFFFFF:
+        rc -= 0x100000000
+    return rc
 
 
 def _run(args: list) -> int:
@@ -29,12 +40,21 @@ def _run(args: list) -> int:
             "config.ini [gtx4cmd] exe_path를 확인하세요."
         )
     cmd = [exe] + args
-    logger.debug("실행: %s", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, timeout=120)
-    rc = result.returncode
+    # GTX4CMD.exe 와 동봉 DLL/드라이버 자료가 같은 폴더에 있어야 정상 동작.
+    # cwd 를 exe 폴더로 강제해 Graphiclabs 와 동일한 실행 컨텍스트 보장.
+    cwd = os.path.dirname(exe) or None
+    logger.debug("실행 (cwd=%s): %s", cwd, " ".join(cmd))
+    result = subprocess.run(cmd, capture_output=True, timeout=120, cwd=cwd)
+    rc = _normalize_returncode(result.returncode)
     if rc != 0:
         desc = RETURN_CODES.get(rc, f"알 수 없는 에러 ({rc})")
-        logger.error("GTX4CMD 에러: %s", desc)
+        logger.error("GTX4CMD 에러 (rc=%d): %s", rc, desc)
+        stdout = (result.stdout or b"").decode("utf-8", errors="replace").strip()
+        stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+        if stdout:
+            logger.error("GTX4CMD stdout: %s", stdout)
+        if stderr:
+            logger.error("GTX4CMD stderr: %s", stderr)
     return rc
 
 
