@@ -133,23 +133,33 @@ class WatcherApp(ctk.CTk):
         if self._watcher_running:
             self._stop_watcher()
         else:
+            # 상호 배타 — 같은 INCOMING/DOWNLOAD 폴더를 둘이 동시에 잡으면 중복 처리됨
+            if self._agent_running:
+                logger.info("Agent 가 실행 중이라 자동 정지 후 Watcher 를 시작합니다.")
+                self._stop_agent()
             self._start_watcher()
 
     def _toggle_agent(self) -> None:
         if self._agent_running:
             self._stop_agent()
         else:
+            if self._watcher_running:
+                logger.info("Watcher 가 실행 중이라 자동 정지 후 Agent 를 시작합니다.")
+                self._stop_watcher()
             self._start_agent()
 
     # ── 라이프사이클 ──────────────────────────────────
     def _start_services(self) -> None:
-        self._start_watcher()
+        # API 인증 정보가 있으면 Agent 모드 우선 (Watcher 와 폴더 충돌 방지)
         if config.API_KEY and config.API_TENANT:
             self._start_agent()
-        elif config.API_TENANT:
+            return
+        if config.API_TENANT:
             self.control.set_agent(running=False, detail="미페어링 — Agent 시작 시 자동 인증", enabled=True)
         else:
             self.control.set_agent(running=False, detail="스토어 ID 미설정 — 설정 패널에서 입력", enabled=False)
+        # 인증 미설정 시에만 Watcher 자동 시작 (수동 드롭인 처리)
+        self._start_watcher()
 
     def _start_watcher(self) -> None:
         if self._watcher_running:
@@ -193,6 +203,10 @@ class WatcherApp(ctk.CTk):
             return
         try:
             self._agent = AgentWorker()
+            # 세션 카운터/최근 처리 목록 wiring — 없으면 카드/리스트가 영원히 0/빈 상태
+            self._agent.on_done = lambda fn: self._on_agent_done(fn)
+            self._agent.on_error = lambda fn: self._on_agent_error(fn)
+            self._agent.on_downloaded = lambda fn: self._on_agent_downloaded(fn)
             self._agent.start()
             self._agent_running = True
             if config.API_KEY:
@@ -201,6 +215,25 @@ class WatcherApp(ctk.CTk):
                 logger.info("=== Agent 인증 시작 — 브라우저에서 승인 후 풀링 자동 시작 ===")
         except Exception:
             logger.exception("agent 시작 실패")
+
+    def _on_agent_done(self, filename: str) -> None:
+        self.stats.on_done()
+        self._push_recent(filename, "ok", "출력 완료")
+
+    def _on_agent_error(self, filename: str) -> None:
+        self.stats.on_error()
+        self._push_recent(filename, "error", "처리 실패")
+
+    def _on_agent_downloaded(self, filename: str) -> None:
+        self._push_recent(filename, "ok", "다운로드")
+
+    def _push_recent(self, filename: str, status: str, detail: str) -> None:
+        try:
+            import time as _time
+            from .recent import ActivityItem
+            self.recent.push(ActivityItem(ts=_time.time(), label=filename, status=status, detail=detail))
+        except Exception:
+            logger.exception("recent push 실패")
 
     def _stop_agent(self) -> None:
         if not self._agent_running:
@@ -216,9 +249,17 @@ class WatcherApp(ctk.CTk):
 
     # ── tick / log ──────────────────────────────────
     def _tick(self) -> None:
+        # Agent 모드 우선 — 실제로 일하는 모듈이 노출하는 상태를 카드에 반영.
+        # 둘 다 OFF 면 INCOMING 폴더의 PDF 수를 보여줘 운영자가 큐를 가늠.
+        if self._agent_running and self._agent is not None:
+            pending = self._agent.pending_count
+            processing = 1 if self._agent.is_processing else 0
+        else:
+            pending = _count_pdfs(config.INCOMING_DIR)
+            processing = 0
         self.cards.set_counts(
-            pending=_count_pdfs(config.INCOMING_DIR),
-            processing=0,
+            pending=pending,
+            processing=processing,
             done=self.stats.done,
             error=self.stats.error,
         )
