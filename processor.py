@@ -11,12 +11,16 @@ import config
 logger = logging.getLogger(__name__)
 
 
-def process_file(file_path: str):
-    """파일 처리 → 출력 모드에 따라 분기 → done/error 이동."""
+def process_file(file_path: str, printer_name: str | None = None):
+    """파일 처리 → 출력 모드에 따라 분기 → done/error 이동.
+
+    printer_name: 다중 프린터 분배기에서 미리 결정한 대상 프린터. None이면 config.PRINTER_NAME 사용.
+    """
     os.makedirs(config.DONE_DIR, exist_ok=True)
     os.makedirs(config.ERROR_DIR, exist_ok=True)
 
     filename = os.path.basename(file_path)
+    target_printer = printer_name or config.PRINTER_NAME
 
     try:
         images = _load_images(file_path)
@@ -24,9 +28,9 @@ def process_file(file_path: str):
             raise RuntimeError(f"출력할 이미지가 없습니다: {filename}")
 
         if config.PRINTER_MODE == "gtx4cmd":
-            _print_via_gtx4cmd(images)
+            _print_via_gtx4cmd(images, target_printer)
         else:
-            _print_via_direct(images)
+            _print_via_direct(images, target_printer)
 
         dest = _unique_path(os.path.join(config.DONE_DIR, filename))
         shutil.move(file_path, dest)
@@ -93,16 +97,16 @@ def _load_from_zip(file_path: str) -> list[Image.Image]:
     return images
 
 
-def _print_via_direct(images: list[Image.Image]):
+def _print_via_direct(images: list[Image.Image], printer_name: str):
     """win32print 직접 출력. 가먼트 잉크 과소비 방지를 위해 흰 배경 평탄화."""
     from printer import print_image
 
     for i, img in enumerate(images, 1):
-        logger.info("  페이지 %d/%d 출력 중...", i, len(images))
-        print_image(_flatten_to_white(img))
+        logger.info("  페이지 %d/%d 출력 중 (%s)...", i, len(images), printer_name)
+        print_image(_flatten_to_white(img), printer_name)
 
 
-def _print_via_gtx4cmd(images: list[Image.Image]):
+def _print_via_gtx4cmd(images: list[Image.Image], printer_name: str):
     """GTX4CMD.exe 경유 출력 (PNG만 지원)."""
     from gtx4cmd import create_arx4, send_to_printer
     from xml_builder import build_xml
@@ -158,8 +162,8 @@ def _print_via_gtx4cmd(images: list[Image.Image]):
             if rc != 0:
                 raise RuntimeError(f"ARX4 생성 실패 (코드: {rc})")
 
-            logger.info("  페이지 %d/%d 프린터 전송 중...", i + 1, len(images))
-            rc = send_to_printer(arx4_path)
+            logger.info("  페이지 %d/%d 프린터 전송 중 (%s)...", i + 1, len(images), printer_name)
+            rc = send_to_printer(arx4_path, printer_name)
             if rc != 0:
                 raise RuntimeError(f"프린터 전송 실패 (코드: {rc})")
     finally:

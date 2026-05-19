@@ -22,6 +22,8 @@ garment_name = Brother GTX-4
 garment_enabled = true
 ; 출력 모드: direct (win32print 직접) / gtx4cmd (GTX4CMD.exe 경유)
 garment_mode = direct
+; 다중 프린터 분배 방식: round_robin (작업마다 순차 회전) / single (항상 첫 번째만)
+garment_dispatch = round_robin
 
 ; ── 작업지시서 프린터 (A4 레이저/잉크젯 등) ──
 ; 비워두면 작업지시서 미출력 (work_order_enabled=false와 동일 효과)
@@ -162,6 +164,10 @@ GARMENT_PRINTER_NAMES = _parse_printer_names(
 GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0]
 GARMENT_ENABLED = _ini.getboolean("printer", "garment_enabled", fallback=True)
 GARMENT_MODE = _ini.get("printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="direct"))
+# 다중 프린터 분배 방식 — round_robin: 작업마다 순차 회전 / single: 항상 첫 번째만 사용
+GARMENT_DISPATCH = _ini.get("printer", "garment_dispatch", fallback="round_robin").strip().lower()
+if GARMENT_DISPATCH not in ("round_robin", "single"):
+    GARMENT_DISPATCH = "round_robin"
 
 # 작업지시서 프린터 (PDF, 일반 프린터)
 WORK_ORDER_PRINTER_NAME = _ini.get("printer", "work_order_name", fallback="").strip()
