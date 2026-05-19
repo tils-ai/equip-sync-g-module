@@ -10,6 +10,7 @@ from typing import Callable, Optional
 import requests
 
 import config
+import dispatcher
 from api_client import GarmentApiClient
 from auth import authenticate
 from processor import process_file
@@ -44,11 +45,12 @@ def _download_pdf(url: str, dest_path: str) -> bool:
 
 
 def _make_filename(job: dict) -> str:
-    """다운로드 파일명 생성."""
+    """다운로드 파일명 생성. dps-store getDesignFilename 규칙과 동일."""
     order_number = job.get("orderNumber", "unknown")
     seqno = job.get("wepnpSeqno", "")
     ext = job.get("designFileType", "PDF").lower()
-    return f"{order_number}_{seqno}_디자인.{ext}"
+    idx = int(job.get("itemIndex", 1))
+    return f"{order_number}_{idx:02d}_{seqno}_디자인.{ext}"
 
 
 def _is_image(path: str) -> bool:
@@ -189,14 +191,19 @@ class AgentWorker:
 
         any_error = False
 
+        # ── 가먼트 출력에 사용할 프린터를 미리 결정 ──
+        # 워크오더에 같은 이름을 박아 "디자인이 어느 장비로 갔는지" 작업자가 알 수 있게 한다.
+        garment_printer = dispatcher.next_printer() if do_garment else None
+
         # ── 1. 작업지시서 출력 (지시서 먼저) ──
         if do_work_order:
             try:
                 logger.info("작업지시서 PDF 조립: %s", filename)
                 wo_meta = job.get("workOrder") or {}
+                idx = int(job.get("itemIndex", 1))
                 wo_pdf = os.path.join(
                     config.DOWNLOAD_DIR,
-                    f"{job.get('orderNumber','unknown')}_{job.get('wepnpSeqno','')}_지시서.pdf",
+                    f"{job.get('orderNumber','unknown')}_{idx:02d}_{job.get('wepnpSeqno','')}_지시서.pdf",
                 )
                 build_work_order_pdf(
                     WorkOrderJob(
@@ -209,9 +216,11 @@ class AgentWorker:
                         brand_name=wo_meta.get("brandName", ""),
                         printed_by=wo_meta.get("printedBy", ""),
                         work_url=wo_meta.get("workUrl", ""),
-                        item_index=int(job.get("itemIndex", 1)),
+                        item_index=idx,
                         item_total=int(job.get("itemTotal", 1)),
                         preview_image_path=download_path if _is_image(download_path) else None,
+                        design_filename=filename,
+                        printer_name=garment_printer,
                     ),
                     wo_pdf,
                 )
@@ -229,12 +238,12 @@ class AgentWorker:
         if do_garment:
             qty = max(1, int(job.get("quantity", 1)))
             try:
-                logger.info("가먼트 출력 시작: %s (x%d)", filename, qty)
+                logger.info("가먼트 출력 시작: %s → %s (x%d)", filename, garment_printer, qty)
                 for n in range(qty):
                     if not self._running:
                         raise RuntimeError("사용자 중지 요청")
                     logger.info("  [%d/%d]", n + 1, qty)
-                    process_file(download_path)
+                    process_file(download_path, printer_name=garment_printer)
                     # process_file은 성공 시 done/으로 옮긴다 — 다음 회차 위해 복사본 복원 필요
                     if n + 1 < qty:
                         done_path = os.path.join(config.DONE_DIR, os.path.basename(download_path))

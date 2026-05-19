@@ -30,6 +30,8 @@ class WorkOrderJob:
     item_index: int = 1  # 주문 내 디자인 순번 (1-based)
     item_total: int = 1  # 주문 내 총 디자인 수
     preview_image_path: Optional[str] = None  # 다운로드한 디자인 PNG 경로
+    design_filename: Optional[str] = None  # 작업자가 매칭할 수 있도록 표에 표기할 디자인 파일명
+    printer_name: Optional[str] = None  # 이 디자인이 전송될 가먼트 프린터명 (분배기로 선결정)
 
 
 def format_order_number(order_number: str, item_index: int, item_total: int) -> str:
@@ -190,6 +192,10 @@ def build_work_order_pdf(job: WorkOrderJob, dest_path: str) -> str:
         ("수량", f"{job.quantity}"),
         ("편집번호", job.wepnp_seqno),
     ]
+    if job.design_filename:
+        rows.append(("디자인 파일", job.design_filename))
+    if job.printer_name:
+        rows.append(("출력 장비", job.printer_name))
     for i, (label, value) in enumerate(rows):
         y = info_top - i * line_h
         c.setFont(bold_font, 10)
