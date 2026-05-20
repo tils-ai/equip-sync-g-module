@@ -217,8 +217,18 @@ class AgentWorker:
         do_work_order = work_order_pending and config.WORK_ORDER_ENABLED and config.WORK_ORDER_PRINTER_NAME
         do_garment = garment_pending and config.GARMENT_ENABLED and config.GARMENT_PRINTER_NAME
 
+        # 진단 가능성을 위해 풀링 응답의 sub status 와 토글 매칭을 항상 한 줄로 남긴다.
+        # capability 분리가 안 된 구버전 서버와 페어링될 때 같은 잡이 무한 반복 풀링되는 케이스를
+        # 사용자가 즉시 식별할 수 있게 함 (dps-store 20260520-garment-pull-capability-split 참조).
+        logger.info(
+            "잡 수신 id=%s file=%s garmentPending=%s workOrderPending=%s "
+            "→ do_garment=%s do_work_order=%s",
+            job_id, filename, garment_pending, work_order_pending, do_garment, do_work_order,
+        )
+
         if not do_work_order and not do_garment:
-            logger.info("스킵 (둘 다 OFF 또는 pending 아님): %s", filename)
+            reason = self._skip_reason(garment_pending, work_order_pending)
+            logger.info("스킵 (%s) id=%s file=%s", reason, job_id, filename)
             return
 
         # 디자인 파일 다운로드 — 양쪽 모두 PNG 미리보기/출력에 필요
@@ -310,6 +320,22 @@ class AgentWorker:
 
         if any_error:
             _fire(self.on_error, filename)
+
+    def _skip_reason(self, garment_pending: bool, work_order_pending: bool) -> str:
+        """스킵 메시지에 붙일 사유 한 줄. 운영자가 토글 vs 서버 응답 미스매치를 즉시 식별."""
+        # 서버는 PENDING 인 sub 만 내려주는 것이 정상 (capability 가드 적용 후).
+        # 그럼에도 둘 다 처리 못 한다는 건 토글 OFF + sub PENDING 의 미스매치.
+        g_off = not (config.GARMENT_ENABLED and config.GARMENT_PRINTER_NAME)
+        w_off = not (config.WORK_ORDER_ENABLED and config.WORK_ORDER_PRINTER_NAME)
+        if garment_pending and g_off and work_order_pending and w_off:
+            return "양쪽 토글 OFF — 다른 PC 처리 대기"
+        if garment_pending and g_off and not work_order_pending:
+            return "garmentPending 인데 가먼트 토글 OFF"
+        if work_order_pending and w_off and not garment_pending:
+            return "workOrderPending 인데 지시서 토글 OFF — 서버 capability 가드 미적용 의심"
+        if not garment_pending and not work_order_pending:
+            return "양쪽 sub 모두 PENDING 아님 — 다른 PC 가 이미 선점"
+        return "스킵 사유 불명 (g=%s/w=%s)" % (garment_pending, work_order_pending)
 
     def _report_printed(self, job_id: str, target: str):
         try:
