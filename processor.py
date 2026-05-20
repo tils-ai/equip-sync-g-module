@@ -43,6 +43,10 @@ def process_file(file_path: str, printer_name: str | None = None):
             shutil.move(file_path, dest)
         except Exception:
             logger.exception("에러 폴더 이동 실패: %s", filename)
+        # 호출자(agent.py)가 실패를 인지하고 mark_failed 를 서버에 보낼 수 있도록 재던지기.
+        # 이전에는 swallow 하여 "처리 실패" 로그 후에도 호출자가 정상 완료로 인지,
+        # GTX4Api.dll 누락 같은 출력 실패가 서버에 PRINTED 로 잘못 기록되는 문제가 있었음.
+        raise
 
 
 def _load_images(file_path: str) -> list[Image.Image]:
