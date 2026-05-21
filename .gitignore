@@ -1,5 +1,9 @@
 .history
 .source
+.claude/
+
+# 로컬 빌드 의존성 (poppler-windows 등)
+poppler/
 
 # macOS
 .DS_Store
