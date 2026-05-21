@@ -1,5 +1,6 @@
 """GTX4CMD.exe CLI 래퍼 - subprocess로 호출, 리턴 코드 해석."""
 
+import datetime
 import logging
 import os
 import subprocess
@@ -23,34 +24,8 @@ RETURN_CODES = {
     -3108: "-S 와 -R 동시 지정 불가 또는 둘 다 미지정",
 }
 
-# 파일/DLL 누락 계열 — 발생 시 관련 폴더 listing 을 진단 로그로 남긴다.
-_FILE_MISSING_CODES = {-1001, -1401, -2001, -3102, -3103}
-
-
-def _log_dir_listing(label: str, dir_path: str) -> None:
-    """진단용: 디렉토리 항목을 ERROR 레벨로 출력. 경로 누락/조회 실패도 명시."""
-    if not dir_path:
-        logger.error("  %s: (경로 없음)", label)
-        return
-    if not os.path.isdir(dir_path):
-        logger.error("  %s: %s — 폴더가 존재하지 않음", label, dir_path)
-        return
-    try:
-        entries = sorted(os.listdir(dir_path))
-    except OSError as e:
-        logger.error("  %s: %s — 목록 조회 실패: %s", label, dir_path, e)
-        return
-    logger.error("  %s: %s (항목 %d개)", label, dir_path, len(entries))
-    for name in entries:
-        full = os.path.join(dir_path, name)
-        if os.path.isdir(full):
-            logger.error("    [D] %s", name)
-        else:
-            try:
-                size = os.path.getsize(full)
-                logger.error("    [F] %s (%d bytes)", name, size)
-            except OSError:
-                logger.error("    [F] %s (크기 조회 실패)", name)
+# 파일/DLL 누락·드라이버 로드 실패 계열 — 발생 시 별도 진단 .txt 파일을 생성한다.
+_FILE_MISSING_CODES = {-1001, -1401, -1403, -2001, -3102, -3103}
 
 
 def _extract_arg_path(args: list, flag: str) -> str | None:
@@ -94,37 +69,234 @@ def _run(args: list) -> int:
         if stderr:
             logger.error("GTX4CMD stderr: %s", stderr)
         if rc in _FILE_MISSING_CODES:
-            _log_diagnostics(exe, cwd, args, rc)
+            try:
+                report_path = _write_diagnostic_report(
+                    exe, cwd, args, rc, result.stdout, result.stderr
+                )
+                logger.error("진단 보고서 저장됨: %s", report_path)
+            except Exception:
+                logger.exception("진단 보고서 저장 실패")
     return rc
 
 
-def _log_diagnostics(exe: str, cwd: str | None, args: list, rc: int) -> None:
-    """파일/DLL 누락 에러(-1001/-1401/-2001/-3102/-3103) 발생 시 경로·폴더 내용을 덤프."""
-    logger.error("진단 정보 (rc=%d):", rc)
-    logger.error("  GTX4CMD.exe 경로: %s (존재=%s)", exe, os.path.isfile(exe))
-    logger.error("  실행 cwd: %s", cwd or "(미지정)")
-    logger.error("  전달 args: %s", " ".join(args))
+# ------------------------------------------------------------------------------
+# 진단 보고서 — 파일/DLL 누락·드라이버 로드 실패 시 환경 점검 결과를 .txt 로 저장.
+# 메인 watcher.log 가 비대해지지 않도록 사건당 1개 파일을 시간 기준으로 생성한다.
+# ------------------------------------------------------------------------------
 
-    # 드라이버/DLL 누락 계열 — exe 와 같은 폴더에 GTX4Api.dll 등 동봉 자료가 있어야 함.
-    if rc in (-1001, -1401):
-        _log_dir_listing("GTX4CMD.exe 폴더", cwd or os.path.dirname(exe))
+def _format_dir_listing(dir_path: str, indent: str = "  ") -> list[str]:
+    """디렉토리 항목 listing 을 라인 리스트로 반환 (보고서용)."""
+    if not dir_path:
+        return [f"{indent}(경로 없음)"]
+    if not os.path.isdir(dir_path):
+        return [f"{indent}{dir_path} — 폴더가 존재하지 않음"]
+    try:
+        entries = sorted(os.listdir(dir_path))
+    except OSError as e:
+        return [f"{indent}{dir_path} — 목록 조회 실패: {e}"]
+    lines = [f"{indent}{dir_path} (항목 {len(entries)}개)"]
+    for name in entries:
+        full = os.path.join(dir_path, name)
+        if os.path.isdir(full):
+            lines.append(f"{indent}  [D] {name}")
+        else:
+            try:
+                size = os.path.getsize(full)
+                lines.append(f"{indent}  [F] {name} ({size:,} bytes)")
+            except OSError:
+                lines.append(f"{indent}  [F] {name} (크기 조회 실패)")
+    return lines
 
-    # 입력 파일 누락 계열 — 해당 파일의 상위 폴더 내용을 보여줌.
-    if rc == -2001:  # PNG 로드 불가
+
+def _check_zone_identifier(path: str) -> str:
+    """NTFS ADS Zone.Identifier 존재 = Windows '다른 컴퓨터에서 받음' 차단 표시."""
+    if not os.path.isfile(path):
+        return "(파일 없음)"
+    ads = path + ":Zone.Identifier"
+    try:
+        with open(ads, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read().strip()
+    except FileNotFoundError:
+        return "정상 (차단 표시 없음)"
+    except OSError as e:
+        return f"확인 실패: {e}"
+    if not content:
+        return "차단 표시 있음 (Zone 정보 비어있음)"
+    return "차단됨 — " + content.replace("\r", "").replace("\n", " | ")
+
+
+def _check_architecture(path: str) -> str:
+    """PE 헤더 IMAGE_FILE_MACHINE → 아키텍처 문자열."""
+    if not os.path.isfile(path):
+        return "(파일 없음)"
+    try:
+        with open(path, "rb") as f:
+            if f.read(2) != b"MZ":
+                return "PE 아님 (MZ 시그니처 없음)"
+            f.seek(0x3C)
+            pe_offset = int.from_bytes(f.read(4), "little")
+            f.seek(pe_offset)
+            if f.read(4) != b"PE\x00\x00":
+                return "PE 시그니처 없음"
+            machine = int.from_bytes(f.read(2), "little")
+    except OSError as e:
+        return f"확인 실패: {e}"
+    return {
+        0x014C: "x86 (32-bit)",
+        0x8664: "x64 (64-bit)",
+        0xAA64: "ARM64",
+    }.get(machine, f"알 수 없음 (machine=0x{machine:04X})")
+
+
+def _check_vcruntime() -> list[tuple[str, bool]]:
+    """VC++ 재배포 런타임 DLL 존재 여부 — GTX4Api.dll 이 의존."""
+    sys32 = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "System32")
+    needed = [
+        "vcruntime140.dll", "vcruntime140_1.dll",
+        "msvcp140.dll", "msvcp140_1.dll",
+    ]
+    return [(n, os.path.isfile(os.path.join(sys32, n))) for n in needed]
+
+
+def _ps(script: str, timeout: int = 15) -> str:
+    """PowerShell 일회성 실행 결과를 텍스트로 반환. 실패 시 사유 문자열 반환."""
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, timeout=timeout,
+        )
+    except FileNotFoundError:
+        return "(PowerShell 미발견)"
+    except subprocess.TimeoutExpired:
+        return "(timeout)"
+    except Exception as e:
+        return f"(실행 실패: {e})"
+    out = result.stdout.decode("utf-8", errors="replace").strip()
+    err = result.stderr.decode("utf-8", errors="replace").strip()
+    if not out and err:
+        return f"(stderr) {err}"
+    return out or "(출력 없음)"
+
+
+def _diagnostic_dir() -> str:
+    """진단 텍스트 파일 저장 폴더 — <watcher.log 폴더>/diagnostics."""
+    log_dir = os.path.dirname(config.LOG_FILE) or os.path.join(config.BASE_DIR, "logs")
+    diag_dir = os.path.join(log_dir, "diagnostics")
+    os.makedirs(diag_dir, exist_ok=True)
+    return diag_dir
+
+
+def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
+                              stdout: bytes, stderr: bytes) -> str:
+    """진단 보고서 텍스트 파일 작성, 저장 경로 반환.
+
+    파일명: gtx4cmd-YYYYMMDD-HHMMSS-rc{|rc|}.txt
+    """
+    now = datetime.datetime.now()
+    fname = f"gtx4cmd-{now.strftime('%Y%m%d-%H%M%S')}-rc{abs(rc)}.txt"
+    path = os.path.join(_diagnostic_dir(), fname)
+
+    desc = RETURN_CODES.get(rc, f"알 수 없는 에러 ({rc})")
+    exe_dir = os.path.dirname(exe) if exe else (cwd or "")
+    dll_path = os.path.join(exe_dir, "GTX4Api.dll") if exe_dir else ""
+
+    L: list[str] = []
+    L.append("=" * 70)
+    L.append("GTX4CMD 진단 보고서")
+    L.append(f"시각      : {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    L.append(f"종료 코드 : {rc}  ({desc})")
+    L.append("=" * 70)
+
+    L.append("")
+    L.append("[1] 실행 정보")
+    L.append(f"  GTX4CMD.exe 경로 : {exe}")
+    L.append(f"  실행 cwd         : {cwd or '(미지정)'}")
+    L.append(f"  전달 args        : {' '.join(args)}")
+
+    L.append("")
+    L.append("[2] GTX4CMD.exe / GTX4Api.dll 점검")
+    for label, p in (("GTX4CMD.exe", exe), ("GTX4Api.dll", dll_path)):
+        L.append(f"  -- {label} --")
+        L.append(f"    경로           : {p or '(경로 없음)'}")
+        if not p:
+            continue
+        exists = os.path.isfile(p)
+        L.append(f"    존재           : {exists}")
+        if exists:
+            try:
+                L.append(f"    크기           : {os.path.getsize(p):,} bytes")
+            except OSError:
+                L.append("    크기           : (조회 실패)")
+            L.append(f"    Windows 차단   : {_check_zone_identifier(p)}")
+            L.append(f"    아키텍처       : {_check_architecture(p)}")
+
+    L.append("")
+    L.append("[3] GTX4CMD.exe 폴더 listing")
+    L.extend(_format_dir_listing(exe_dir))
+
+    # 입력 파일 누락 계열 — 해당 파일의 상위 폴더도 점검.
+    if rc in (-2001, -3103):
         img = _extract_arg_path(args, "-I")
         if img:
-            logger.error("  이미지 경로: %s (존재=%s)", img, os.path.isfile(img))
-            _log_dir_listing("이미지 폴더", os.path.dirname(img))
-    if rc == -3102:  # XML 파일 없음
+            L.append("")
+            L.append("[3b] 입력 이미지")
+            L.append(f"  경로 : {img}")
+            L.append(f"  존재 : {os.path.isfile(img)}")
+            L.append("  상위 폴더:")
+            L.extend(_format_dir_listing(os.path.dirname(img), indent="    "))
+    if rc == -3102:
         xml = _extract_arg_path(args, "-X")
         if xml:
-            logger.error("  XML 경로: %s (존재=%s)", xml, os.path.isfile(xml))
-            _log_dir_listing("XML 폴더", os.path.dirname(xml))
-    if rc == -3103:  # 이미지 파일 없음
-        img = _extract_arg_path(args, "-I")
-        if img:
-            logger.error("  이미지 경로: %s (존재=%s)", img, os.path.isfile(img))
-            _log_dir_listing("이미지 폴더", os.path.dirname(img))
+            L.append("")
+            L.append("[3b] 입력 XML")
+            L.append(f"  경로 : {xml}")
+            L.append(f"  존재 : {os.path.isfile(xml)}")
+            L.append("  상위 폴더:")
+            L.extend(_format_dir_listing(os.path.dirname(xml), indent="    "))
+
+    L.append("")
+    L.append("[4] VC++ 재배포 런타임 (System32) — GTX4Api.dll 의존 모듈")
+    for name, ok in _check_vcruntime():
+        L.append(f"  {name:<25} : {'존재' if ok else '없음 (재배포 패키지 미설치 가능성)'}")
+
+    L.append("")
+    L.append("[5] Print Spooler 서비스")
+    L.append(_ps(
+        "(Get-Service Spooler | Select-Object Status,Name,StartType,DisplayName "
+        "| Format-List | Out-String).Trim()"
+    ))
+
+    L.append("")
+    L.append("[6] Brother 프린터 드라이버 (Get-PrinterDriver)")
+    L.append(_ps(
+        "$d = Get-PrinterDriver | Where-Object { $_.Name -match 'GTX|Brother' }; "
+        "if ($d) { ($d | Select-Object Name,Manufacturer,InfPath | "
+        "Format-List | Out-String).Trim() } else { 'Brother/GTX 드라이버 없음 — "
+        "Brother 공식 설치 프로그램으로 GTX-4 드라이버 설치 필요' }"
+    ))
+
+    L.append("")
+    L.append("[7] Brother 프린터 큐 (Get-Printer)")
+    L.append(_ps(
+        "$p = Get-Printer | Where-Object { $_.Name -match 'GTX|Brother' }; "
+        "if ($p) { ($p | Select-Object Name,DriverName,PortName,PrinterStatus | "
+        "Format-List | Out-String).Trim() } else { 'Brother/GTX 프린터 없음' }"
+    ))
+
+    L.append("")
+    L.append("[8] GTX4CMD 표준 출력")
+    so = (stdout or b"").decode("utf-8", errors="replace").strip()
+    se = (stderr or b"").decode("utf-8", errors="replace").strip()
+    L.append(f"  stdout : {so or '(없음)'}")
+    L.append(f"  stderr : {se or '(없음)'}")
+
+    L.append("")
+    L.append("=" * 70)
+    L.append("끝")
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(L))
+    return path
 
 
 def create_arx4(xml_path: str, image_path: str, arx4_path: str,
