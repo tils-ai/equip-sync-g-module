@@ -23,6 +23,44 @@ RETURN_CODES = {
     -3108: "-S 와 -R 동시 지정 불가 또는 둘 다 미지정",
 }
 
+# 파일/DLL 누락 계열 — 발생 시 관련 폴더 listing 을 진단 로그로 남긴다.
+_FILE_MISSING_CODES = {-1001, -1401, -2001, -3102, -3103}
+
+
+def _log_dir_listing(label: str, dir_path: str) -> None:
+    """진단용: 디렉토리 항목을 ERROR 레벨로 출력. 경로 누락/조회 실패도 명시."""
+    if not dir_path:
+        logger.error("  %s: (경로 없음)", label)
+        return
+    if not os.path.isdir(dir_path):
+        logger.error("  %s: %s — 폴더가 존재하지 않음", label, dir_path)
+        return
+    try:
+        entries = sorted(os.listdir(dir_path))
+    except OSError as e:
+        logger.error("  %s: %s — 목록 조회 실패: %s", label, dir_path, e)
+        return
+    logger.error("  %s: %s (항목 %d개)", label, dir_path, len(entries))
+    for name in entries:
+        full = os.path.join(dir_path, name)
+        if os.path.isdir(full):
+            logger.error("    [D] %s", name)
+        else:
+            try:
+                size = os.path.getsize(full)
+                logger.error("    [F] %s (%d bytes)", name, size)
+            except OSError:
+                logger.error("    [F] %s (크기 조회 실패)", name)
+
+
+def _extract_arg_path(args: list, flag: str) -> str | None:
+    """args 에서 `flag` 다음 위치의 값(경로)을 반환. 없으면 None."""
+    try:
+        i = args.index(flag)
+    except ValueError:
+        return None
+    return args[i + 1] if i + 1 < len(args) else None
+
 
 def _normalize_returncode(rc: int) -> int:
     """Windows subprocess 가 음수 종료 코드를 unsigned 32-bit 로 주는 케이스 정규화."""
@@ -55,7 +93,38 @@ def _run(args: list) -> int:
             logger.error("GTX4CMD stdout: %s", stdout)
         if stderr:
             logger.error("GTX4CMD stderr: %s", stderr)
+        if rc in _FILE_MISSING_CODES:
+            _log_diagnostics(exe, cwd, args, rc)
     return rc
+
+
+def _log_diagnostics(exe: str, cwd: str | None, args: list, rc: int) -> None:
+    """파일/DLL 누락 에러(-1001/-1401/-2001/-3102/-3103) 발생 시 경로·폴더 내용을 덤프."""
+    logger.error("진단 정보 (rc=%d):", rc)
+    logger.error("  GTX4CMD.exe 경로: %s (존재=%s)", exe, os.path.isfile(exe))
+    logger.error("  실행 cwd: %s", cwd or "(미지정)")
+    logger.error("  전달 args: %s", " ".join(args))
+
+    # 드라이버/DLL 누락 계열 — exe 와 같은 폴더에 GTX4Api.dll 등 동봉 자료가 있어야 함.
+    if rc in (-1001, -1401):
+        _log_dir_listing("GTX4CMD.exe 폴더", cwd or os.path.dirname(exe))
+
+    # 입력 파일 누락 계열 — 해당 파일의 상위 폴더 내용을 보여줌.
+    if rc == -2001:  # PNG 로드 불가
+        img = _extract_arg_path(args, "-I")
+        if img:
+            logger.error("  이미지 경로: %s (존재=%s)", img, os.path.isfile(img))
+            _log_dir_listing("이미지 폴더", os.path.dirname(img))
+    if rc == -3102:  # XML 파일 없음
+        xml = _extract_arg_path(args, "-X")
+        if xml:
+            logger.error("  XML 경로: %s (존재=%s)", xml, os.path.isfile(xml))
+            _log_dir_listing("XML 폴더", os.path.dirname(xml))
+    if rc == -3103:  # 이미지 파일 없음
+        img = _extract_arg_path(args, "-I")
+        if img:
+            logger.error("  이미지 경로: %s (존재=%s)", img, os.path.isfile(img))
+            _log_dir_listing("이미지 폴더", os.path.dirname(img))
 
 
 def create_arx4(xml_path: str, image_path: str, arx4_path: str,
