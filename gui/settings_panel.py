@@ -17,7 +17,6 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from tkinter import filedialog
 
 import customtkinter as ctk
 
@@ -468,20 +467,13 @@ class SettingsPanel(ctk.CTkFrame):
     def _build_garment_cli(self, parent) -> None:
         parent.grid_columnconfigure(1, weight=1)
 
-        # exe 경로 + browse
-        ctk.CTkLabel(parent, text="exe 경로", font=ctk.CTkFont(family=_font_family(), size=11)).grid(
-            row=0, column=0, sticky="w", pady=2
-        )
-        self._exe_path = ctk.CTkEntry(parent, font=ctk.CTkFont(family=_font_family(), size=11))
-        self._exe_path.grid(row=0, column=1, sticky="ew", padx=(8, 4), pady=2)
-        self._exe_path.insert(0, config.LEGACY_CLI_EXE)
-        ctk.CTkButton(
+        # CLI/DLL 은 실행파일에 임베드되어 자동 탐색되므로 경로 설정 불필요.
+        ctk.CTkLabel(
             parent,
-            text="찾기",
-            width=60,
+            text="CLI/DLL 임베드 — 경로 설정 불필요 (실행 시 자동 선택)",
             font=ctk.CTkFont(family=_font_family(), size=10),
-            command=self._browse_exe,
-        ).grid(row=0, column=2, padx=(0, 2), pady=2)
+            text_color=theme.TEXT_MUTED,
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
 
         platen_opts = ["0: 16x21", "1: 16x18", "2: 14x16", "3: 10x12", "4: 7x8"]
         current_platen = platen_opts[config.PLATEN_SIZE] if config.PLATEN_SIZE < len(platen_opts) else platen_opts[0]
@@ -525,14 +517,6 @@ class SettingsPanel(ctk.CTkFrame):
             command=lambda: _open_in_editor(Path(config.INI_PATH)),
         ).grid(row=1, column=0, sticky="w", pady=2)
 
-    def _browse_exe(self) -> None:
-        path = filedialog.askopenfilename(
-            title="가먼트 CLI 실행파일 선택",
-            filetypes=[("실행 파일", "*.exe"), ("모든 파일", "*.*")],
-        )
-        if path:
-            self._exe_path.delete(0, "end")
-            self._exe_path.insert(0, path)
 
     # ── 저장 ────────────────────────────────
     def _save_all(self) -> None:
@@ -558,7 +542,6 @@ class SettingsPanel(ctk.CTkFrame):
             config.save_value("paths", "error", self._error_dir.get())
             config.save_value("download", "dir", self._download_dir.get())
 
-            config.save_value("garment_cli", "cli_legacy_path", self._exe_path.get())
             config.save_value("garment_cli", "platen_size", self._platen_size.get().split(":")[0])
             config.save_value("garment_cli", "ink", self._ink.get().split(":")[0])
             config.save_value("garment_cli", "copies", self._copies.get())
