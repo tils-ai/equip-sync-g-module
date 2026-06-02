@@ -27,8 +27,8 @@ def process_file(file_path: str, printer_name: str | None = None):
         if not images:
             raise RuntimeError(f"출력할 이미지가 없습니다: {filename}")
 
-        if config.PRINTER_MODE == "gtx4cmd":
-            _print_via_gtx4cmd(images, target_printer)
+        if config.PRINTER_MODE == "cli":
+            _print_via_cli(images, target_printer)
         else:
             _print_via_direct(images, target_printer)
 
@@ -45,7 +45,7 @@ def process_file(file_path: str, printer_name: str | None = None):
             logger.exception("에러 폴더 이동 실패: %s", filename)
         # 호출자(agent.py)가 실패를 인지하고 mark_failed 를 서버에 보낼 수 있도록 재던지기.
         # 이전에는 swallow 하여 "처리 실패" 로그 후에도 호출자가 정상 완료로 인지,
-        # GTX4Api.dll 누락 같은 출력 실패가 서버에 PRINTED 로 잘못 기록되는 문제가 있었음.
+        # API DLL 누락 같은 출력 실패가 서버에 PRINTED 로 잘못 기록되는 문제가 있었음.
         raise
 
 
@@ -110,9 +110,9 @@ def _print_via_direct(images: list[Image.Image], printer_name: str):
         print_image(_flatten_to_white(img), printer_name)
 
 
-def _print_via_gtx4cmd(images: list[Image.Image], printer_name: str):
-    """GTX4CMD.exe 경유 출력 (PNG만 지원)."""
-    from gtx4cmd import create_arx4, send_to_printer
+def _print_via_cli(images: list[Image.Image], printer_name: str):
+    """가먼트 CLI 경유 출력 (PNG만 지원)."""
+    from garment_cli import create_arx4, send_to_printer
     from xml_builder import build_xml
 
     tmp_dir = tempfile.mkdtemp(prefix="gtx4_")
@@ -202,7 +202,7 @@ def _calc_center_position(img_w: int, img_h: int, platen_w: int, platen_h: int) 
 def _flatten_to_white(img: Image.Image) -> Image.Image:
     """RGBA 알파 이진화(임계 128) 후 배경을 정확한 RGB(255,255,255)로 합성.
 
-    GTX4CMD의 `-W 0`(기본)은 정확한 RGB(255,255,255) 픽셀만 투명으로 해석하므로,
+    가먼트 CLI의 `-W 0`(기본)은 정확한 RGB(255,255,255) 픽셀만 투명으로 해석하므로,
     안티앨리어싱/렌더 오차로 '거의 흰색'이 된 배경 픽셀이 잉크로 분사되는 것을 막는다.
     """
     if img.mode != "RGBA":

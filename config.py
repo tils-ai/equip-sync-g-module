@@ -15,14 +15,14 @@ INI_PATH = os.path.join(BASE_DIR, "config.ini")
 
 _DEFAULT_INI = """\
 [printer]
-; ── 가먼트 디자인 프린터 (Brother GTX-4 등) ──
+; ── 가먼트 디자인 프린터 ──
 ; Windows 설정 > 프린터에서 정확한 이름 확인. 여러 개 지정 시 콤마 구분.
 ; 비워두면 가먼트 자동 출력 비활성 (do_garment 가드).
 garment_name =
 ; 가먼트 자동 출력 활성화 (true/false)
 garment_enabled = true
-; 출력 모드: gtx4cmd (GTX4CMD.exe 경유, 기본) / direct (win32print 직접)
-garment_mode = gtx4cmd
+; 출력 모드: cli (가먼트 CLI 경유, 기본) / direct (win32print 직접)
+garment_mode = cli
 ; 다중 프린터 분배 방식: round_robin (작업마다 순차 회전) / single (항상 첫 번째만)
 garment_dispatch = round_robin
 
@@ -34,11 +34,14 @@ work_order_enabled = false
 
 ; (deprecated, 하위 호환) — 새 키 garment_name/garment_mode 사용
 name =
-mode = gtx4cmd
+mode = cli
 
-[gtx4cmd]
-; GTX4CMD.exe 경로 (비워두면 .source 폴더에서 탐색)
-exe_path =
+[garment_cli]
+; 가먼트 CLI(legacy 계열) 경로 (비워두면 exe 폴더 → .source 폴더 순 탐색)
+cli_legacy_path =
+; 가먼트 CLI(pro 계열) 경로 (비워두면 exe 폴더 → .source 폴더 순 탐색)
+; 두 계열이 모두 준비되면, 출력 시 자동으로 둘 다 시도해 성공하는 CLI 를 확정·재사용한다(auto-probe).
+cli_pro_path =
 ; ── CLI 인자 ──
 ; 자동 중앙 정렬 (true=이미지/플래튼 기준 position 자동 계산, false=아래 position 값 사용)
 auto_center = true
@@ -46,14 +49,14 @@ auto_center = true
 position = 00000000
 ; 인쇄 크기 (8자리, 앞4=너비, 뒤4=높이, 단위 0.1mm; 비워두면 magnification 사용; 설정 시 magnification 무시)
 size =
-; 배율 (4자리, 단위 0.1%, 1000=100%; size 미지정 시 사용; GTX4CMD print 는 -S/-R 중 하나가 필수이므로 기본 1000)
+; 배율 (4자리, 단위 0.1%, 1000=100%; size 미지정 시 사용; print 는 -S/-R 중 하나가 필수이므로 기본 1000)
 magnification = 1000
 ; RGB(255,255,255) 해석: 0=투명, 1=화이트 잉크 (색있는 옷에서 흰 디자인 필요 시 1)
 white_as = 0
 ; ── XML 요소 ──
 ; 인쇄 매수 (1~999)
 copies = 1
-; 머신 모드 (0=GTX-422)
+; 머신 모드 (0=기본)
 machine_mode = 0
 ; 해상도 (1=1200dpi x 1200dpi)
 resolution = 1
@@ -165,7 +168,7 @@ GARMENT_PRINTER_NAMES = _parse_printer_names(
 )
 GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0] if GARMENT_PRINTER_NAMES else ""
 GARMENT_ENABLED = _ini.getboolean("printer", "garment_enabled", fallback=True)
-GARMENT_MODE = _ini.get("printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="gtx4cmd"))
+GARMENT_MODE = _ini.get("printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="cli"))
 # 다중 프린터 분배 방식 — round_robin: 작업마다 순차 회전 / single: 항상 첫 번째만 사용
 GARMENT_DISPATCH = _ini.get("printer", "garment_dispatch", fallback="round_robin").strip().lower()
 if GARMENT_DISPATCH not in ("round_robin", "single"):
@@ -180,25 +183,25 @@ PRINTER_NAMES = GARMENT_PRINTER_NAMES
 PRINTER_NAME = GARMENT_PRINTER_NAME
 PRINTER_MODE = GARMENT_MODE
 
-# --- gtx4cmd ---
-def _load_gtx4cmd() -> dict:
-    """GTX4CMD 파라미터를 dict로 로드. 누락/파싱 오류 시 기본값."""
+# --- 가먼트 CLI 파라미터 ---
+def _load_cli_params() -> dict:
+    """가먼트 CLI 파라미터를 dict로 로드. 누락/파싱 오류 시 기본값."""
     def _i(key, default):
         try:
-            return _ini.getint("gtx4cmd", key, fallback=default)
+            return _ini.getint("garment_cli", key, fallback=default)
         except ValueError:
             return default
 
     def _b(key, default):
         try:
-            return _ini.getboolean("gtx4cmd", key, fallback=default)
+            return _ini.getboolean("garment_cli", key, fallback=default)
         except ValueError:
             return default
 
     def _s(key, default=""):
-        return _ini.get("gtx4cmd", key, fallback=default).strip()
+        return _ini.get("garment_cli", key, fallback=default).strip()
 
-    # GTX4CMD print 명령은 -S(size) / -R(magnification) 중 하나가 반드시 지정돼야 함 (-3108).
+    # print 명령은 -S(size) / -R(magnification) 중 하나가 반드시 지정돼야 함 (-3108).
     # 둘 다 비면 안전 폴백으로 magnification=1000(=100%) 자동 적용.
     _size = _s("size")
     _mag = _s("magnification")
@@ -242,7 +245,7 @@ def _load_gtx4cmd() -> dict:
     }
 
 
-_gtx = _load_gtx4cmd()
+_gtx = _load_cli_params()
 AUTO_CENTER = _gtx["AUTO_CENTER"]
 POSITION = _gtx["POSITION"]
 SIZE = _gtx["SIZE"]
@@ -275,8 +278,8 @@ YELLOW_BALANCE = _gtx["YELLOW_BALANCE"]
 BLACK_BALANCE = _gtx["BLACK_BALANCE"]
 UNI_PRINT = _gtx["UNI_PRINT"]
 
-# GUI 파라미터 패널에서 사용하는 GTX4CMD 파라미터 키 목록 (저장 시 순서 보존)
-GTX4CMD_KEYS = [
+# GUI 파라미터 패널에서 사용하는 가먼트 CLI 파라미터 키 목록 (저장 시 순서 보존)
+CLI_PARAM_KEYS = [
     "auto_center", "position", "size", "magnification", "white_as",
     "copies", "machine_mode", "resolution", "platen_size", "ink",
     "eco_mode", "highlight", "mask", "ink_volume", "double_print",
@@ -296,22 +299,43 @@ PLATEN_DIMS = {
     4: (1778, 2032),  # 7x8 inches
 }
 
-# --- gtx4cmd exe 경로 ---
-def _resolve_gtx4cmd():
-    explicit = _ini.get("gtx4cmd", "exe_path", fallback="")
+# --- 가먼트 CLI exe 경로 (legacy / pro 계열) ---
+def _resolve_cmd_exe(exe_name: str, ini_key: str) -> str:
+    """CLI exe 탐색.
+
+    우선순위: ini 명시 경로 → exe 옆(수동 교체 우선) → PyInstaller 번들(_MEIPASS) → 개발용 .source.
+    onefile 빌드 시 `--add-data ".source;.source"` 로 동봉된 자료는 실행마다 _MEIPASS 에 풀리므로,
+    BASE_DIR(=exe 폴더)뿐 아니라 _MEIPASS 도 함께 탐색해야 번들본을 사용할 수 있다.
+    """
+    explicit = _ini.get("garment_cli", ini_key, fallback="")
     if explicit and os.path.isfile(explicit):
         return explicit
-    # exe와 같은 폴더 (배포 시 기본)
-    same_dir = os.path.join(BASE_DIR, "GTX4CMD.exe")
-    if os.path.isfile(same_dir):
-        return same_dir
-    # .source 폴더 (개발 시)
-    source = os.path.join(BASE_DIR, ".source", "GTX4CMD.exe")
-    if os.path.isfile(source):
-        return source
+    # 탐색 베이스: exe 옆(운영자 수동 교체 우선) → 번들 추출 폴더(_MEIPASS)
+    bases = [BASE_DIR]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass and meipass not in bases:
+        bases.append(meipass)
+    for base in bases:
+        for sub in (exe_name, os.path.join(".source", exe_name)):
+            cand = os.path.join(base, sub)
+            if os.path.isfile(cand):
+                return cand
     return ""
 
-GTX4CMD_EXE = _resolve_gtx4cmd()
+
+def _resolve_legacy_cli():
+    return _resolve_cmd_exe("garment_cli_legacy.exe", "cli_legacy_path")
+
+
+def _resolve_pro_cli():
+    return _resolve_cmd_exe("garment_cli_pro.exe", "cli_pro_path")
+
+
+# 가먼트 CLI 실행파일 경로 (legacy / pro 두 계열). 실제 벤더 파일은 빌드 시 중립명으로 복원된다.
+LEGACY_CLI_EXE = _resolve_legacy_cli()
+PRO_CLI_EXE = _resolve_pro_cli()
+# auto-probe 로 확정된 가먼트 CLI 계열("legacy"/"pro")을 기록·재사용하는 상태 파일.
+ACTIVE_CMD_STATE = os.path.join(BASE_DIR, ".active_garment_cmd")
 
 # --- folder (spec §11.5 — incoming/processing/done/done/originals/error/logs 통일) ---
 def _path_fallback(paths_key: str, legacy_section: str, legacy_key: str, default_sub: str) -> str:
@@ -393,7 +417,7 @@ def set_appearance(value: str) -> None:
 
 def reload():
     """config.ini를 다시 읽어서 모듈 변수를 갱신한다."""
-    global PRINTER_NAME, PRINTER_NAMES, PRINTER_MODE, GTX4CMD_EXE
+    global PRINTER_NAME, PRINTER_NAMES, PRINTER_MODE, LEGACY_CLI_EXE, PRO_CLI_EXE
     global GARMENT_PRINTER_NAME, GARMENT_PRINTER_NAMES, GARMENT_ENABLED, GARMENT_MODE
     global WORK_ORDER_PRINTER_NAME, WORK_ORDER_ENABLED
     global AUTO_CENTER, POSITION, SIZE, MAGNIFICATION, WHITE_AS
@@ -415,16 +439,17 @@ def reload():
     GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0] if GARMENT_PRINTER_NAMES else ""
     GARMENT_ENABLED = _ini.getboolean("printer", "garment_enabled", fallback=True)
     GARMENT_MODE = _ini.get(
-        "printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="gtx4cmd")
+        "printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="cli")
     )
     WORK_ORDER_PRINTER_NAME = _ini.get("printer", "work_order_name", fallback="").strip()
     WORK_ORDER_ENABLED = _ini.getboolean("printer", "work_order_enabled", fallback=False)
     PRINTER_NAMES = GARMENT_PRINTER_NAMES
     PRINTER_NAME = GARMENT_PRINTER_NAME
     PRINTER_MODE = GARMENT_MODE
-    GTX4CMD_EXE = _resolve_gtx4cmd()
+    LEGACY_CLI_EXE = _resolve_legacy_cli()
+    PRO_CLI_EXE = _resolve_pro_cli()
 
-    g = _load_gtx4cmd()
+    g = _load_cli_params()
     AUTO_CENTER = g["AUTO_CENTER"]
     POSITION = g["POSITION"]; SIZE = g["SIZE"]; MAGNIFICATION = g["MAGNIFICATION"]; WHITE_AS = g["WHITE_AS"]
     COPIES = g["COPIES"]; MACHINE_MODE = g["MACHINE_MODE"]; RESOLUTION = g["RESOLUTION"]
