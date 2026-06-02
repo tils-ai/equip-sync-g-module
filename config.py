@@ -62,6 +62,11 @@ machine_mode = 0
 resolution = 1
 ; 플래튼 크기: 0=16x21, 1=16x18, 2=14x16(기본), 3=10x12, 4=7x8
 platen_size = 2
+; 플레이트 자동 맞춤(true): 이미지를 플레이트에 contain(축소만, 작으면 원본), 가로 중앙·세로 상단
+auto_fit = true
+; 성인 플레이트(기본) / 아동 플레이트(주문서 플레이트 교체 체크 시 자동 사용)
+platen_adult = 2
+platen_child = 3
 ; 잉크 조합: 0=Color, 1=White, 2=Color+White, 3=Black
 ink = 0
 ; Eco 모드 (ink=2일 때만): false/true
@@ -220,6 +225,11 @@ def _load_cli_params() -> dict:
         "MACHINE_MODE": _i("machine_mode", 0),
         "RESOLUTION": _i("resolution", 1),
         "PLATEN_SIZE": _i("platen_size", 2),
+        # 플레이트 자동 맞춤: 이미지를 플레이트에 contain(축소만, 작으면 원본), 가로 중앙·세로 상단
+        "AUTO_FIT": _b("auto_fit", True),
+        # 성인(기본) / 아동(주문서 플레이트 교체 체크) 플레이트 인덱스
+        "PLATEN_ADULT": _i("platen_adult", 2),  # 14x16
+        "PLATEN_CHILD": _i("platen_child", 3),  # 10x12
         "INK": _i("ink", 0),
         "ECO_MODE": _b("eco_mode", False),
         "HIGHLIGHT": _i("highlight", 5),
@@ -255,6 +265,9 @@ COPIES = _gtx["COPIES"]
 MACHINE_MODE = _gtx["MACHINE_MODE"]
 RESOLUTION = _gtx["RESOLUTION"]
 PLATEN_SIZE = _gtx["PLATEN_SIZE"]
+AUTO_FIT = _gtx["AUTO_FIT"]
+PLATEN_ADULT = _gtx["PLATEN_ADULT"]
+PLATEN_CHILD = _gtx["PLATEN_CHILD"]
 INK = _gtx["INK"]
 ECO_MODE = _gtx["ECO_MODE"]
 HIGHLIGHT = _gtx["HIGHLIGHT"]
@@ -422,6 +435,7 @@ def reload():
     global WORK_ORDER_PRINTER_NAME, WORK_ORDER_ENABLED
     global AUTO_CENTER, POSITION, SIZE, MAGNIFICATION, WHITE_AS
     global COPIES, MACHINE_MODE, RESOLUTION, PLATEN_SIZE, INK
+    global AUTO_FIT, PLATEN_ADULT, PLATEN_CHILD
     global ECO_MODE, HIGHLIGHT, MASK, INK_VOLUME, DOUBLE_PRINT
     global MATERIAL_BLACK, MULTIPLE, TRANS_COLOR, COLOR_TRANS, TOLERANCE
     global MIN_WHITE, CHOKE, PAUSE
@@ -454,6 +468,7 @@ def reload():
     POSITION = g["POSITION"]; SIZE = g["SIZE"]; MAGNIFICATION = g["MAGNIFICATION"]; WHITE_AS = g["WHITE_AS"]
     COPIES = g["COPIES"]; MACHINE_MODE = g["MACHINE_MODE"]; RESOLUTION = g["RESOLUTION"]
     PLATEN_SIZE = g["PLATEN_SIZE"]; INK = g["INK"]
+    AUTO_FIT = g["AUTO_FIT"]; PLATEN_ADULT = g["PLATEN_ADULT"]; PLATEN_CHILD = g["PLATEN_CHILD"]
     ECO_MODE = g["ECO_MODE"]; HIGHLIGHT = g["HIGHLIGHT"]; MASK = g["MASK"]
     INK_VOLUME = g["INK_VOLUME"]; DOUBLE_PRINT = g["DOUBLE_PRINT"]
     MATERIAL_BLACK = g["MATERIAL_BLACK"]; MULTIPLE = g["MULTIPLE"]

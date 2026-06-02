@@ -11,10 +11,11 @@ import config
 logger = logging.getLogger(__name__)
 
 
-def process_file(file_path: str, printer_name: str | None = None):
+def process_file(file_path: str, printer_name: str | None = None, needs_plate_change: bool = False):
     """파일 처리 → 출력 모드에 따라 분기 → done/error 이동.
 
     printer_name: 다중 프린터 분배기에서 미리 결정한 대상 프린터. None이면 config.PRINTER_NAME 사용.
+    needs_plate_change: 주문서 플레이트 교체 대상(아동용 등). True면 아동 플레이트(10x12)로 출력.
     """
     os.makedirs(config.DONE_DIR, exist_ok=True)
     os.makedirs(config.ERROR_DIR, exist_ok=True)
@@ -28,7 +29,7 @@ def process_file(file_path: str, printer_name: str | None = None):
             raise RuntimeError(f"출력할 이미지가 없습니다: {filename}")
 
         if config.PRINTER_MODE == "cli":
-            _print_via_cli(images, target_printer)
+            _print_via_cli(images, target_printer, needs_plate_change)
         else:
             _print_via_direct(images, target_printer)
 
@@ -110,19 +111,25 @@ def _print_via_direct(images: list[Image.Image], printer_name: str):
         print_image(_flatten_to_white(img), printer_name)
 
 
-def _print_via_cli(images: list[Image.Image], printer_name: str):
-    """가먼트 CLI 경유 출력 (PNG만 지원)."""
+def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_change: bool = False):
+    """가먼트 CLI 경유 출력 (PNG만 지원).
+
+    needs_plate_change=True 면 아동 플레이트(10x12), 아니면 성인 플레이트(14x16) 사용.
+    AUTO_FIT 모드(기본): 이미지를 플레이트에 contain(축소만, 작으면 원본), 가로 중앙·세로 상단 배치.
+    """
     from garment_cli import create_arx4, send_to_printer
     from xml_builder import build_xml
 
-    tmp_dir = tempfile.mkdtemp(prefix="gtx4_")
+    tmp_dir = tempfile.mkdtemp(prefix="garment_")
     try:
-        xml_path = os.path.join(tmp_dir, "settings.xml")
-        build_xml(xml_path)
+        # 플레이트 선택: 아동(플레이트 교체) → 10x12, 성인(기본) → 14x16
+        platen_idx = config.PLATEN_CHILD if needs_plate_change else config.PLATEN_ADULT
+        platen_w, platen_h = config.PLATEN_DIMS.get(platen_idx, config.PLATEN_DIMS[0])
+        platen_label = "아동" if needs_plate_change else "성인"
 
-        platen_w, platen_h = config.PLATEN_DIMS.get(
-            config.PLATEN_SIZE, config.PLATEN_DIMS[0]
-        )
+        xml_path = os.path.join(tmp_dir, "settings.xml")
+        build_xml(xml_path, platen_size=platen_idx)  # byPlatenSize 를 선택 플레이트와 동기화
+
         manual_size = config.SIZE or None
 
         for i, img in enumerate(images):
@@ -131,13 +138,25 @@ def _print_via_cli(images: list[Image.Image], printer_name: str):
 
             _flatten_to_white(img).save(png_path, "PNG")
 
-            # SIZE 명시 시 그 값 우선, 아니면 수동 MAGNIFICATION, 아니면 원본 크기
             base_w, base_h = _image_dims_mm10(img)
-            if manual_size:
+            if config.AUTO_FIT and not manual_size:
+                # 플레이트에 contain — 축소만(작으면 scale=1.0=원본), 크면 비율 유지 축소
+                scale = min(platen_w / max(1, base_w), platen_h / max(1, base_h), 1.0)
+                eff_w, eff_h = int(round(base_w * scale)), int(round(base_h * scale))
+                size = None
+                magnification = f"{int(round(scale * 1000)):04d}"
+                position = _calc_fit_position(eff_w, eff_h, platen_w, platen_h)
+            elif manual_size:
+                # SIZE 수동 지정 우선
                 size = manual_size
                 magnification = None
                 eff_w, eff_h = _parse_size(manual_size, base_w, base_h)
+                position = (
+                    _calc_center_position(eff_w, eff_h, platen_w, platen_h)
+                    if config.AUTO_CENTER else None
+                )
             else:
+                # 수동 MAGNIFICATION 또는 원본 크기 + (옵션) 중앙 정렬
                 size = None
                 magnification = config.MAGNIFICATION or None
                 if magnification:
@@ -145,15 +164,14 @@ def _print_via_cli(images: list[Image.Image], printer_name: str):
                     eff_w, eff_h = int(round(base_w * mag)), int(round(base_h * mag))
                 else:
                     eff_w, eff_h = base_w, base_h
-
-            position = (
-                _calc_center_position(eff_w, eff_h, platen_w, platen_h)
-                if config.AUTO_CENTER else None
-            )
+                position = (
+                    _calc_center_position(eff_w, eff_h, platen_w, platen_h)
+                    if config.AUTO_CENTER else None
+                )
 
             logger.info(
-                "  배치 — 이미지 %dx%d (0.1mm), 플래튼 %dx%d, 위치 %s",
-                eff_w, eff_h, platen_w, platen_h,
+                "  배치 — %s 플레이트 %dx%d, 이미지 %dx%d (0.1mm), 위치 %s",
+                platen_label, platen_w, platen_h, eff_w, eff_h,
                 position or config.POSITION,
             )
 
@@ -196,6 +214,13 @@ def _calc_center_position(img_w: int, img_h: int, platen_w: int, platen_h: int) 
     """이미지/플래튼 0.1mm 기준 중앙 정렬 -L 8자리 문자열."""
     left = max(0, min(9999, (platen_w - img_w) // 2))
     top = max(0, min(9999, (platen_h - img_h) // 2))
+    return f"{left:04d}{top:04d}"
+
+
+def _calc_fit_position(img_w: int, img_h: int, platen_w: int, platen_h: int) -> str:
+    """플레이트 맞춤 정렬 — 가로(너비)는 중앙, 세로(높이)는 상단. -L 8자리 문자열."""
+    left = max(0, min(9999, (platen_w - img_w) // 2))
+    top = 0
     return f"{left:04d}{top:04d}"
 
 

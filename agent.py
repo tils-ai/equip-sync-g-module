@@ -292,13 +292,22 @@ class AgentWorker:
         # ── 2. 가먼트 디자인 출력 (가먼트 나중, quantity번 반복) ──
         if do_garment:
             qty = max(1, int(job.get("quantity", 1)))
+            needs_plate_change = bool(job.get("needsPlateChange", False))
             try:
-                logger.info("가먼트 출력 시작: %s → %s (x%d)", filename, garment_printer, qty)
+                logger.info(
+                    "가먼트 출력 시작: %s → %s (x%d)%s",
+                    filename, garment_printer, qty,
+                    " [아동 플레이트]" if needs_plate_change else "",
+                )
                 for n in range(qty):
                     if not self._running:
                         raise RuntimeError("사용자 중지 요청")
                     logger.info("  [%d/%d]", n + 1, qty)
-                    process_file(download_path, printer_name=garment_printer)
+                    process_file(
+                        download_path,
+                        printer_name=garment_printer,
+                        needs_plate_change=needs_plate_change,
+                    )
                     # process_file은 성공 시 done/으로 옮긴다 — 다음 회차 위해 복사본 복원 필요
                     if n + 1 < qty:
                         done_path = os.path.join(config.DONE_DIR, os.path.basename(download_path))
