@@ -4,7 +4,7 @@ b-module 섹션:
 - 페어링 (Agent API)
 - 프린터
 - 폴더
-- GTX4CMD 파라미터 (필수 항목만 — 전체 30+ 항목은 config.ini 직접 편집)
+- 가먼트 CLI 파라미터 (필수 항목만 — 전체 30+ 항목은 config.ini 직접 편집)
 - 렌더링
 - 정보
 """
@@ -116,7 +116,7 @@ class SettingsPanel(ctk.CTkFrame):
         self._section(body, "페어링 (Agent API)", self._build_pairing)
         self._section(body, "프린터", self._build_printer)
         self._section(body, "폴더", self._build_folders)
-        self._section(body, "GTX4CMD 파라미터", self._build_gtx4cmd)
+        self._section(body, "가먼트 CLI 파라미터", self._build_garment_cli)
         self._section(body, "렌더링", self._build_render)
         self._section(body, "정보", self._build_info)
 
@@ -282,7 +282,7 @@ class SettingsPanel(ctk.CTkFrame):
         self._garment_dispatch = self._combo(parent, "분배 방식", dispatch_opts, current_dispatch, 3)
 
         self._printer_mode = self._combo(
-            parent, "가먼트 출력 모드", ["gtx4cmd", "direct"], config.GARMENT_MODE, 4
+            parent, "가먼트 출력 모드", ["cli", "direct"], config.GARMENT_MODE, 4
         )
         self._garment_enabled = ctk.CTkSwitch(
             parent, text="가먼트 자동 출력", onvalue=True, offvalue=False,
@@ -464,8 +464,8 @@ class SettingsPanel(ctk.CTkFrame):
         self._error_dir = self._entry(parent, "에러(error)", config.ERROR_DIR, 2)
         self._download_dir = self._entry(parent, "다운로드", config.DOWNLOAD_DIR, 3)
 
-    # ── GTX4CMD (필수만, 전체는 config.ini) ──
-    def _build_gtx4cmd(self, parent) -> None:
+    # ── 가먼트 CLI (필수만, 전체는 config.ini) ──
+    def _build_garment_cli(self, parent) -> None:
         parent.grid_columnconfigure(1, weight=1)
 
         # exe 경로 + browse
@@ -474,7 +474,7 @@ class SettingsPanel(ctk.CTkFrame):
         )
         self._exe_path = ctk.CTkEntry(parent, font=ctk.CTkFont(family=_font_family(), size=11))
         self._exe_path.grid(row=0, column=1, sticky="ew", padx=(8, 4), pady=2)
-        self._exe_path.insert(0, config.GTX4CMD_EXE)
+        self._exe_path.insert(0, config.LEGACY_CLI_EXE)
         ctk.CTkButton(
             parent,
             text="찾기",
@@ -527,7 +527,7 @@ class SettingsPanel(ctk.CTkFrame):
 
     def _browse_exe(self) -> None:
         path = filedialog.askopenfilename(
-            title="GTX4CMD.exe 선택",
+            title="가먼트 CLI 실행파일 선택",
             filetypes=[("실행 파일", "*.exe"), ("모든 파일", "*.*")],
         )
         if path:
@@ -558,11 +558,11 @@ class SettingsPanel(ctk.CTkFrame):
             config.save_value("paths", "error", self._error_dir.get())
             config.save_value("download", "dir", self._download_dir.get())
 
-            config.save_value("gtx4cmd", "exe_path", self._exe_path.get())
-            config.save_value("gtx4cmd", "platen_size", self._platen_size.get().split(":")[0])
-            config.save_value("gtx4cmd", "ink", self._ink.get().split(":")[0])
-            config.save_value("gtx4cmd", "copies", self._copies.get())
-            config.save_value("gtx4cmd", "position", self._position.get())
+            config.save_value("garment_cli", "cli_legacy_path", self._exe_path.get())
+            config.save_value("garment_cli", "platen_size", self._platen_size.get().split(":")[0])
+            config.save_value("garment_cli", "ink", self._ink.get().split(":")[0])
+            config.save_value("garment_cli", "copies", self._copies.get())
+            config.save_value("garment_cli", "position", self._position.get())
             config.save_value("render", "dpi", self._render_dpi.get())
             config.reload()
             # agent/dispatcher 가 config 모듈 변수를 매 작업마다 동적으로 읽으므로 재시작 불필요.

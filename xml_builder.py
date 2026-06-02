@@ -1,4 +1,4 @@
-"""GTX4CMD.exe용 인쇄 설정 XML 생성."""
+"""가먼트 CLI용 인쇄 설정 XML 생성."""
 
 import xml.etree.ElementTree as ET
 
@@ -8,8 +8,8 @@ import config
 def build_xml(output_path: str, **overrides):
     """config.ini 기반 + 오버라이드로 인쇄 설정 XML 생성.
 
-    각 XML 요소는 Brother GTX-4 Command-line Tool 가이드 3-1-2 절 참조.
-    요소를 생략하면 GTX4CMD는 '0'으로 간주하므로, UI 값을 모두 명시적으로 출력한다.
+    각 XML 요소는 가먼트 CLI Command-line Tool 가이드 3-1-2 절 참조.
+    요소를 생략하면 가먼트 CLI는 '0'으로 간주하므로, UI 값을 모두 명시적으로 출력한다.
     """
 
     def _v(key, attr):

@@ -30,9 +30,9 @@ from . import theme
 
 logger = logging.getLogger(__name__)
 
-WINDOW_TITLE = "Brother GTX-4 Manager"
+WINDOW_TITLE = "가먼트 프린터 매니저"
 WINDOW_SIZE = (920, 680)
-DEVICE_LABEL = "👕 Brother GTX-4"
+DEVICE_LABEL = "👕 가먼트 프린터"
 
 
 def _open_folder(path: str) -> None:
@@ -172,7 +172,7 @@ class WatcherApp(ctk.CTk):
         try:
             self._observer = start_watching()
             self._watcher_running = True
-            logger.info("=== Brother GTX-4 Watcher 시작 ===")
+            logger.info("=== 가먼트 Watcher 시작 ===")
             logger.info("감시: %s → 완료: %s", config.INCOMING_DIR, config.DONE_DIR)
         except Exception:
             logger.exception("watcher 시작 실패")

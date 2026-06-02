@@ -48,7 +48,7 @@ def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
     """PDF 파일을 일반 Windows 프린터로 출력 (작업지시서용).
 
     pdf2image로 페이지별 PIL Image로 변환 후 print_image() 재사용.
-    가먼트 프린터(GTX-4)가 아닌 일반 A4 레이저/잉크젯에 보낸다.
+    가먼트 프린터가 아닌 일반 A4 레이저/잉크젯에 보낸다.
     """
     if not printer_name:
         raise RuntimeError("작업지시서 프린터명이 설정되지 않았습니다.")
