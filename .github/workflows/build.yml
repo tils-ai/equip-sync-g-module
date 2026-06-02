@@ -35,6 +35,18 @@ jobs:
           }
           echo "bin=$popplerBin" >> $env:GITHUB_OUTPUT
 
+      - name: Restore vendor assets
+        shell: pwsh
+        env:
+          DLL_MANIFEST: ${{ secrets.DLL_MANIFEST }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DLL_MANIFEST)) {
+            Write-Error "secret DLL_MANIFEST 가 설정되지 않았습니다 (가명→원본 라이브러리 이름 매핑)."
+            exit 1
+          }
+          Set-Content -Path "vendor/.dll_manifest" -Value $env:DLL_MANIFEST -Encoding UTF8
+          python scripts/restore_vendor.py
+
       - name: Build exe
         run: |
           pyinstaller --onefile --windowed `
@@ -52,6 +64,7 @@ jobs:
             --collect-submodules gui `
             --add-data "${{ steps.poppler.outputs.bin }};poppler" `
             --add-data "assets/fonts;assets/fonts" `
+            --add-data ".source;.source" `
             --name equip-sync-g `
             main.py
 

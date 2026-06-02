@@ -1,5 +1,7 @@
 @echo off
 pip install -r requirements.txt
+REM 가명 자산(vendor/) → 임시 .source/ 로 복원 (원본 이름 매핑은 vendor\.dll_manifest, 미추적)
+python scripts\restore_vendor.py || exit /b 1
 pyinstaller --onefile --windowed ^
     --hidden-import=win32print ^
     --hidden-import=win32ui ^
@@ -10,8 +12,8 @@ pyinstaller --onefile --windowed ^
     --collect-submodules gui ^
     --add-data ".source;.source" ^
     --add-data "assets/fonts;assets/fonts" ^
-    --name gtx4-manager ^
+    --name equip-sync-g ^
     main.py
 echo.
-echo 빌드 완료: dist\gtx4-manager.exe
+echo 빌드 완료: dist\equip-sync-g.exe
 pause

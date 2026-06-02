@@ -2,6 +2,12 @@
 .source
 .claude/
 
+# 벤더 원본 라이브러리 이름 매핑 (가명→원본). 가명 바이너리 vendor/*.bin,*.lib 는 추적하되
+# 원본 이름이 담긴 이 매핑은 커밋하지 않는다. CI 는 secret(DLL_MANIFEST)으로 주입.
+vendor/.dll_manifest
+# auto-probe 로 확정된 CLI 계열 상태 파일 (런타임 생성)
+.active_garment_cmd
+
 # 로컬 빌드 의존성 (poppler-windows 등)
 poppler/
 
