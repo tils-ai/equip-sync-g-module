@@ -11,6 +11,13 @@
 
 import os
 import shutil
+import sys
+
+# Windows CI 기본 콘솔 인코딩(cp1252)에서 비ASCII 출력이 깨지지 않도록 UTF-8 강제.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENDOR = os.path.join(ROOT, "vendor")
@@ -77,7 +84,7 @@ def main() -> int:
         )
         return 2
 
-    print(f"[restore_vendor] 완료: {restored}개 복원 → {SOURCE}")
+    print(f"[restore_vendor] done: {restored} restored -> {SOURCE}")
     return 0
 
 
