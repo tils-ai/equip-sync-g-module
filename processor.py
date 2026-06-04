@@ -138,11 +138,13 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
 
         manual_size = config.SIZE or None
         data_ext = preferred_data_extension(printer_name)
+        target_model = "pro" if data_ext == ".arxp" else "legacy"
         xml_path = os.path.join(tmp_dir, "settings.xml")
         build_xml(
             xml_path,
             platen_size=platen_idx,  # byPlatenSize 를 선택 플레이트와 동기화
-            include_machine_mode=data_ext != ".arxp",
+            target_model=target_model,
+            include_machine_mode=target_model != "pro",
         )
 
         for i, img in enumerate(images):

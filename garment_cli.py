@@ -503,6 +503,7 @@ def send_to_printer(arx4_path: str, printer_name: str = None) -> int:
         "send",
         "-A", arx4_path,
         "-P", printer_name or config.PRINTER_NAME,
+        "-D", "1",
     ], printer_name=printer_name or config.PRINTER_NAME)
 
 
