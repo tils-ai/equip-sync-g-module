@@ -117,11 +117,19 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
     needs_plate_change=True 면 아동 플레이트(10x12), 아니면 성인 플레이트(14x16) 사용.
     AUTO_FIT 모드(기본): 이미지를 플레이트에 contain(축소만, 작으면 원본), 가로 중앙·세로 상단 배치.
     """
-    from garment_cli import create_arx4, send_to_printer
+    from garment_cli import (
+        create_arx4,
+        describe_cli_selection,
+        printer_driver_summary,
+        send_to_printer,
+    )
     from xml_builder import build_xml
 
     tmp_dir = tempfile.mkdtemp(prefix="garment_")
     try:
+        logger.info("  가먼트 실행 설정: %s", describe_cli_selection())
+        logger.info("  가먼트 프린터 드라이버: %s", printer_driver_summary(printer_name))
+
         # 플레이트 선택: 아동(플레이트 교체) → 10x12, 성인(기본) → 14x16
         platen_idx = config.PLATEN_CHILD if needs_plate_change else config.PLATEN_ADULT
         platen_w, platen_h = config.PLATEN_DIMS.get(platen_idx, config.PLATEN_DIMS[0])
@@ -180,6 +188,7 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
                 xml_path, png_path, arx4_path,
                 position=position,
                 size=size, magnification=magnification, white=config.WHITE_AS,
+                printer_name=printer_name,
             )
             if rc != 0:
                 raise RuntimeError(f"ARX4 생성 실패 (코드: {rc})")
