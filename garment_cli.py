@@ -52,6 +52,21 @@ def _exe_for_model(model: str) -> str:
     return {"legacy": config.LEGACY_CLI_EXE, "pro": config.PRO_CLI_EXE}.get(model, "")
 
 
+def preferred_data_extension(printer_name: str = "") -> str:
+    """현재 대상 계열에 맞는 가먼트 인쇄 데이터 확장자 반환.
+
+    GTX pro CMD는 ARXP 포맷을 생성/전송하므로 .arxp를 사용한다. 아직
+    active CLI가 확정되기 전에는 프린터명으로 GTX pro 장비를 보수적으로
+    판정한다.
+    """
+    active = _load_active_exe()
+    if _model_for_exe(active or "") == "pro":
+        return ".arxp"
+    if "pro" in (printer_name or "").lower():
+        return ".arxp"
+    return ".arx4"
+
+
 def _load_active_exe() -> str | None:
     """확정된 CLI 를 메모리→상태파일 순으로 조회. 유효한 exe 경로면 반환."""
     global _active_exe

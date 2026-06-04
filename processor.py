@@ -120,6 +120,7 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
     from garment_cli import (
         create_arx4,
         describe_cli_selection,
+        preferred_data_extension,
         printer_driver_summary,
         send_to_printer,
     )
@@ -139,10 +140,11 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
         build_xml(xml_path, platen_size=platen_idx)  # byPlatenSize 를 선택 플레이트와 동기화
 
         manual_size = config.SIZE or None
+        data_ext = preferred_data_extension(printer_name)
 
         for i, img in enumerate(images):
             png_path = os.path.join(tmp_dir, f"page_{i}.png")
-            arx4_path = os.path.join(tmp_dir, f"page_{i}.arx4")
+            arx4_path = os.path.join(tmp_dir, f"page_{i}{data_ext}")
 
             _flatten_to_white(img).save(png_path, "PNG")
 
@@ -183,7 +185,7 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
                 position or config.POSITION,
             )
 
-            logger.info("  페이지 %d/%d ARX4 생성 중...", i + 1, len(images))
+            logger.info("  페이지 %d/%d 인쇄 데이터 생성 중 (%s)...", i + 1, len(images), data_ext)
             rc = create_arx4(
                 xml_path, png_path, arx4_path,
                 position=position,
@@ -191,7 +193,7 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
                 printer_name=printer_name,
             )
             if rc != 0:
-                raise RuntimeError(f"ARX4 생성 실패 (코드: {rc})")
+                raise RuntimeError(f"인쇄 데이터 생성 실패 (코드: {rc})")
 
             logger.info("  페이지 %d/%d 프린터 전송 중 (%s)...", i + 1, len(images), printer_name)
             rc = send_to_printer(arx4_path, printer_name)
