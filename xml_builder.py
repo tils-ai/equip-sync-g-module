@@ -23,7 +23,6 @@ def build_xml(output_path: str, **overrides):
     elements = [
         ("szFileName", ""),
         ("uiCopies", str(_v("copies", "COPIES"))),
-        ("byMachineMode", str(_v("machine_mode", "MACHINE_MODE"))),
         ("byPlatenSize", str(_v("platen_size", "PLATEN_SIZE"))),
         ("byInk", str(_v("ink", "INK"))),
         ("bEcoMode", _b(_v("eco_mode", "ECO_MODE"))),
@@ -49,6 +48,11 @@ def build_xml(output_path: str, **overrides):
         ("iBlackBalance", str(_v("black_balance", "BLACK_BALANCE"))),
         ("bUniPrint", _b(_v("uni_print", "UNI_PRINT"))),
     ]
+
+    # GTXpro XML spec does not define byMachineMode. Keep it only for legacy
+    # GTX-4 ARX4 generation, where the official guide requires the field.
+    if overrides.get("include_machine_mode", True):
+        elements.insert(2, ("byMachineMode", str(_v("machine_mode", "MACHINE_MODE"))))
 
     for tag, value in elements:
         el = ET.SubElement(root, tag)

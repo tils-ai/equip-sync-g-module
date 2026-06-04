@@ -136,11 +136,14 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
         platen_w, platen_h = config.PLATEN_DIMS.get(platen_idx, config.PLATEN_DIMS[0])
         platen_label = "아동" if needs_plate_change else "성인"
 
-        xml_path = os.path.join(tmp_dir, "settings.xml")
-        build_xml(xml_path, platen_size=platen_idx)  # byPlatenSize 를 선택 플레이트와 동기화
-
         manual_size = config.SIZE or None
         data_ext = preferred_data_extension(printer_name)
+        xml_path = os.path.join(tmp_dir, "settings.xml")
+        build_xml(
+            xml_path,
+            platen_size=platen_idx,  # byPlatenSize 를 선택 플레이트와 동기화
+            include_machine_mode=data_ext != ".arxp",
+        )
 
         for i, img in enumerate(images):
             png_path = os.path.join(tmp_dir, f"page_{i}.png")
