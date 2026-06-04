@@ -97,6 +97,43 @@ def _candidate_exes() -> list:
     return out
 
 
+def describe_cli_selection() -> str:
+    """Return the GTX CLI mode currently selected for logging."""
+    active = _load_active_exe()
+    candidates = _candidate_exes()
+    active_label = _model_for_exe(active) if active else "auto"
+    candidate_labels = [
+        f"{_model_for_exe(exe) or 'unknown'}:{os.path.basename(exe)}"
+        for exe in candidates
+    ]
+    return (
+        f"garment_mode={config.GARMENT_MODE}, "
+        f"gtx_cli={active_label}, "
+        f"candidates={', '.join(candidate_labels) or '(none)'}"
+    )
+
+
+def printer_driver_summary(printer_name: str | None) -> str:
+    """Return the Windows printer queue/driver used by this job."""
+    if not printer_name:
+        return "printer=(none), driver=(unknown)"
+    try:
+        import win32print
+
+        handle = win32print.OpenPrinter(printer_name)
+        try:
+            info = win32print.GetPrinter(handle, 2)
+        finally:
+            win32print.ClosePrinter(handle)
+    except Exception as e:
+        return f"printer={printer_name}, driver=(lookup failed: {e})"
+
+    driver = info.get("pDriverName") or "(unknown)"
+    port = info.get("pPortName") or "(unknown)"
+    status = info.get("Status")
+    return f"printer={printer_name}, driver={driver}, port={port}, status={status}"
+
+
 def _extract_arg_path(args: list, flag: str) -> str | None:
     """args 에서 `flag` 다음 위치의 값(경로)을 반환. 없으면 None."""
     try:
@@ -113,7 +150,7 @@ def _normalize_returncode(rc: int) -> int:
     return rc
 
 
-def _run(args: list, exe: str = None) -> int:
+def _run(args: list, exe: str = None, printer_name: str = None) -> int:
     """가먼트 CLI 실행, 리턴 코드 반환.
 
     exe 미지정 시 auto-probe 로 확정된 CLI → legacy 계열 순으로 사용한다.
@@ -145,7 +182,8 @@ def _run(args: list, exe: str = None) -> int:
         if rc in _FILE_MISSING_CODES:
             try:
                 report_path = _write_diagnostic_report(
-                    exe, cwd, args, rc, result.stdout, result.stderr
+                    exe, cwd, args, rc, result.stdout, result.stderr,
+                    printer_name=printer_name,
                 )
                 logger.error("진단 보고서 저장됨: %s", report_path)
             except Exception:
@@ -268,7 +306,8 @@ def _diagnostic_dir() -> str:
 
 
 def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
-                              stdout: bytes, stderr: bytes) -> str:
+                              stdout: bytes, stderr: bytes,
+                              printer_name: str = None) -> str:
     """진단 보고서 텍스트 파일 작성, 저장 경로 반환.
 
     파일명: garment_cli-YYYYMMDD-HHMMSS-rc{|rc|}.txt
@@ -279,6 +318,7 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
 
     desc = RETURN_CODES.get(rc, f"알 수 없는 에러 ({rc})")
     exe_dir = os.path.dirname(exe) if exe else (cwd or "")
+    target_printer = printer_name or _extract_arg_path(args, "-P") or config.PRINTER_NAME
     # DLL 원본명을 코드에 박지 않고 exe 폴더의 .dll 을 동적 점검한다.
     try:
         dll_paths = (
@@ -301,6 +341,8 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
     L.append(f"  CLI exe 경로 : {exe}")
     L.append(f"  실행 cwd     : {cwd or '(미지정)'}")
     L.append(f"  전달 args    : {' '.join(args)}")
+    L.append(f"  GTX mode     : {describe_cli_selection()}")
+    L.append(f"  Printer info : {printer_driver_summary(target_printer)}")
 
     L.append("")
     L.append("[2] CLI exe / API DLL 점검")
@@ -389,7 +431,7 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
     return path
 
 
-def _run_with_probe(args: list) -> int:
+def _run_with_probe(args: list, printer_name: str = None) -> int:
     """ARX4 생성(print) 전용 — 후보 CLI 를 순회하며 성공하는 것을 확정·캐싱한다.
 
     - 성공(rc==0): 해당 CLI 를 확정(메모리+상태파일)하고 0 반환.
@@ -402,10 +444,10 @@ def _run_with_probe(args: list) -> int:
     """
     candidates = _candidate_exes()
     if not candidates:
-        return _run(args)  # 설정 없음 → 기존 경로(FileNotFoundError) 위임
+        return _run(args, printer_name=printer_name)  # 설정 없음 → 기존 경로(FileNotFoundError) 위임
     last_rc = None
     for exe in candidates:
-        rc = _run(args, exe=exe)
+        rc = _run(args, exe=exe, printer_name=printer_name)
         if rc == 0:
             if exe != _active_exe:
                 _save_active_exe(exe)
@@ -421,7 +463,8 @@ def _run_with_probe(args: list) -> int:
 
 def create_arx4(xml_path: str, image_path: str, arx4_path: str,
                 position: str = None, size: str = None,
-                magnification: str = None, white: int = None) -> int:
+                magnification: str = None, white: int = None,
+                printer_name: str = None) -> int:
     """PNG + XML → ARX4 생성. (가먼트 CLI auto-probe 진입점)"""
     args = [
         "print",
@@ -436,7 +479,7 @@ def create_arx4(xml_path: str, image_path: str, arx4_path: str,
         args += ["-R", magnification]
     if white is not None:
         args += ["-W", str(white)]
-    return _run_with_probe(args)
+    return _run_with_probe(args, printer_name=printer_name)
 
 
 def send_to_printer(arx4_path: str, printer_name: str = None) -> int:
@@ -445,7 +488,7 @@ def send_to_printer(arx4_path: str, printer_name: str = None) -> int:
         "send",
         "-A", arx4_path,
         "-P", printer_name or config.PRINTER_NAME,
-    ])
+    ], printer_name=printer_name or config.PRINTER_NAME)
 
 
 def extract_data(arx4_path: str, xml_path: str = None,
