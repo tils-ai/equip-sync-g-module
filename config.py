@@ -40,7 +40,8 @@ mode = cli
 ; 가먼트 CLI(legacy 계열) 경로 (비워두면 exe 폴더 → .source 폴더 순 탐색)
 cli_legacy_path =
 ; 가먼트 CLI(pro 계열) 경로 (비워두면 exe 폴더 → .source 폴더 순 탐색)
-; 두 계열이 모두 준비되면, 출력 시 자동으로 둘 다 시도해 성공하는 CLI 를 확정·재사용한다(auto-probe).
+; GTX 장비 계열: auto=Windows 드라이버명/프린터명으로 판정, pro=GTXpro 고정, legacy=GTX-4 고정
+gtx_cli = auto
 cli_pro_path =
 ; ── CLI 인자 ──
 ; 자동 중앙 정렬 (true=이미지/플래튼 기준 position 자동 계산, false=아래 position 값 사용)
@@ -135,7 +136,7 @@ poll_interval = 5
 dir =
 
 [paths]
-; spec §11.5 통일 규칙 — 비워두면 %LOCALAPPDATA%\equip-sync-g-module\ 하위 기본 폴더 자동 사용
+; spec §11.5 통일 규칙 — 비워두면 %LOCALAPPDATA%\\equip-sync-g-module\\ 하위 기본 폴더 자동 사용
 incoming =
 processing =
 done =
@@ -143,7 +144,7 @@ originals =
 error =
 
 [log]
-; 로그 파일 경로 (비워두면 %LOCALAPPDATA%\equip-sync-g-module\logs\watcher.log)
+; 로그 파일 경로 (비워두면 %LOCALAPPDATA%\\equip-sync-g-module\\logs\\watcher.log)
 file =
 level = INFO
 
@@ -215,6 +216,7 @@ def _load_cli_params() -> dict:
 
     return {
         # CLI
+        "GTX_CLI": _s("gtx_cli", "auto").lower(),
         "AUTO_CENTER": _b("auto_center", True),
         "POSITION": _s("position", "00000000") or "00000000",
         "SIZE": _size,
@@ -256,6 +258,7 @@ def _load_cli_params() -> dict:
 
 
 _gtx = _load_cli_params()
+GTX_CLI = _gtx["GTX_CLI"] if _gtx["GTX_CLI"] in ("auto", "pro", "legacy") else "auto"
 AUTO_CENTER = _gtx["AUTO_CENTER"]
 POSITION = _gtx["POSITION"]
 SIZE = _gtx["SIZE"]
@@ -293,7 +296,7 @@ UNI_PRINT = _gtx["UNI_PRINT"]
 
 # GUI 파라미터 패널에서 사용하는 가먼트 CLI 파라미터 키 목록 (저장 시 순서 보존)
 CLI_PARAM_KEYS = [
-    "auto_center", "position", "size", "magnification", "white_as",
+    "gtx_cli", "auto_center", "position", "size", "magnification", "white_as",
     "copies", "machine_mode", "resolution", "platen_size", "ink",
     "eco_mode", "highlight", "mask", "ink_volume", "double_print",
     "material_black", "multiple", "trans_color", "color_trans", "tolerance",
@@ -433,7 +436,7 @@ def reload():
     global PRINTER_NAME, PRINTER_NAMES, PRINTER_MODE, LEGACY_CLI_EXE, PRO_CLI_EXE
     global GARMENT_PRINTER_NAME, GARMENT_PRINTER_NAMES, GARMENT_ENABLED, GARMENT_MODE
     global WORK_ORDER_PRINTER_NAME, WORK_ORDER_ENABLED
-    global AUTO_CENTER, POSITION, SIZE, MAGNIFICATION, WHITE_AS
+    global GTX_CLI, AUTO_CENTER, POSITION, SIZE, MAGNIFICATION, WHITE_AS
     global COPIES, MACHINE_MODE, RESOLUTION, PLATEN_SIZE, INK
     global AUTO_FIT, PLATEN_ADULT, PLATEN_CHILD
     global ECO_MODE, HIGHLIGHT, MASK, INK_VOLUME, DOUBLE_PRINT
@@ -464,6 +467,7 @@ def reload():
     PRO_CLI_EXE = _resolve_pro_cli()
 
     g = _load_cli_params()
+    GTX_CLI = g["GTX_CLI"] if g["GTX_CLI"] in ("auto", "pro", "legacy") else "auto"
     AUTO_CENTER = g["AUTO_CENTER"]
     POSITION = g["POSITION"]; SIZE = g["SIZE"]; MAGNIFICATION = g["MAGNIFICATION"]; WHITE_AS = g["WHITE_AS"]
     COPIES = g["COPIES"]; MACHINE_MODE = g["MACHINE_MODE"]; RESOLUTION = g["RESOLUTION"]

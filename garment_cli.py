@@ -52,6 +52,38 @@ def _exe_for_model(model: str) -> str:
     return {"legacy": config.LEGACY_CLI_EXE, "pro": config.PRO_CLI_EXE}.get(model, "")
 
 
+def _printer_driver_name(printer_name: str = "") -> str:
+    """Windows 프린터 큐의 DriverName. 조회 실패 시 빈 문자열."""
+    if not printer_name:
+        return ""
+    try:
+        import win32print
+
+        handle = win32print.OpenPrinter(printer_name)
+        try:
+            info = win32print.GetPrinter(handle, 2)
+        finally:
+            win32print.ClosePrinter(handle)
+    except Exception:
+        return ""
+    return info.get("pDriverName") or ""
+
+
+def _preferred_model_for_printer(printer_name: str = "") -> str:
+    """설정값과 Windows 드라이버명으로 대상 CLI 계열을 판정한다."""
+    forced = getattr(config, "GTX_CLI", "auto")
+    if forced in ("pro", "legacy"):
+        return forced
+
+    driver = _printer_driver_name(printer_name)
+    target = f"{driver} {printer_name or ''}".lower()
+    if "gtx pro" in target or "gtxpro" in target:
+        return "pro"
+    if "gtx-4" in target or "gtx4" in target:
+        return "legacy"
+    return ""
+
+
 def preferred_data_extension(printer_name: str = "") -> str:
     """현재 대상 계열에 맞는 가먼트 인쇄 데이터 확장자 반환.
 
@@ -59,10 +91,10 @@ def preferred_data_extension(printer_name: str = "") -> str:
     active CLI가 확정되기 전에는 프린터명으로 GTX pro 장비를 보수적으로
     판정한다.
     """
+    if _preferred_model_for_printer(printer_name) == "pro":
+        return ".arxp"
     active = _load_active_exe()
     if _model_for_exe(active or "") == "pro":
-        return ".arxp"
-    if "pro" in (printer_name or "").lower():
         return ".arxp"
     return ".arx4"
 
@@ -103,8 +135,13 @@ def _clear_active_exe() -> None:
         pass
 
 
-def _candidate_exes() -> list:
-    """probe 후보 — 캐시된 CLI 우선, 그다음 legacy/pro 계열 중 실제 존재하는 것 (중복 제거)."""
+def _candidate_exes(printer_name: str = "") -> list:
+    """probe 후보 — 프린터 계열이 명확하면 해당 CLI만 사용한다."""
+    preferred = _preferred_model_for_printer(printer_name)
+    if preferred:
+        exe = _exe_for_model(preferred)
+        return [exe] if exe and os.path.isfile(exe) else []
+
     out = []
     for exe in (_load_active_exe(), config.LEGACY_CLI_EXE, config.PRO_CLI_EXE):
         if exe and os.path.isfile(exe) and exe not in out:
@@ -112,10 +149,11 @@ def _candidate_exes() -> list:
     return out
 
 
-def describe_cli_selection() -> str:
+def describe_cli_selection(printer_name: str = "") -> str:
     """Return the GTX CLI mode currently selected for logging."""
     active = _load_active_exe()
-    candidates = _candidate_exes()
+    preferred = _preferred_model_for_printer(printer_name)
+    candidates = _candidate_exes(printer_name)
     active_label = _model_for_exe(active) if active else "auto"
     candidate_labels = [
         f"{_model_for_exe(exe) or 'unknown'}:{os.path.basename(exe)}"
@@ -124,6 +162,8 @@ def describe_cli_selection() -> str:
     return (
         f"garment_mode={config.GARMENT_MODE}, "
         f"gtx_cli={active_label}, "
+        f"gtx_cli_setting={getattr(config, 'GTX_CLI', 'auto')}, "
+        f"preferred={preferred or 'auto'}, "
         f"candidates={', '.join(candidate_labels) or '(none)'}"
     )
 
@@ -172,7 +212,13 @@ def _run(args: list, exe: str = None, printer_name: str = None) -> int:
     (send/status/제어 등은 exe 를 넘기지 않으므로 자동으로 확정 CLI 를 재사용)
     """
     if exe is None:
-        exe = _load_active_exe() or config.LEGACY_CLI_EXE
+        preferred = _preferred_model_for_printer(printer_name or "")
+        preferred_exe = _exe_for_model(preferred)
+        exe = (
+            preferred_exe
+            if preferred_exe and os.path.isfile(preferred_exe)
+            else (_load_active_exe() or config.LEGACY_CLI_EXE)
+        )
     if not exe:
         raise FileNotFoundError(
             "가먼트 CLI 경로가 설정되지 않았습니다. "
@@ -356,7 +402,7 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
     L.append(f"  CLI exe 경로 : {exe}")
     L.append(f"  실행 cwd     : {cwd or '(미지정)'}")
     L.append(f"  전달 args    : {' '.join(args)}")
-    L.append(f"  GTX mode     : {describe_cli_selection()}")
+    L.append(f"  GTX mode     : {describe_cli_selection(target_printer)}")
     L.append(f"  Printer info : {printer_driver_summary(target_printer)}")
 
     L.append("")
@@ -454,10 +500,11 @@ def _run_with_probe(args: list, printer_name: str = None) -> int:
     - 그 외 실패(입력 오류 등): 다른 CLI 로도 동일 실패하므로 즉시 반환.
     - 모든 후보 실패: 캐시 폐기 후 마지막 rc 반환.
 
-    print(-A) 는 실제 장비로 전송하지 않으므로 둘 다 시도해도 부작용이 없다.
-    여기서 확정된 CLI 를 send/status/제어가 재사용한다(잘못된 CLI 의 중복 전송 방지).
+    print(-A) 는 실제 장비로 전송하지 않지만, 계열이 다른 CLI가 성공하면
+    잘못된 포맷 파일을 만들 수 있다. 프린터명으로 계열이 확정되면 해당 CLI만 사용한다.
+    여기서 확정된 CLI 를 send/status/제어가 재사용한다.
     """
-    candidates = _candidate_exes()
+    candidates = _candidate_exes(printer_name)
     if not candidates:
         return _run(args, printer_name=printer_name)  # 설정 없음 → 기존 경로(FileNotFoundError) 위임
     last_rc = None
@@ -508,7 +555,8 @@ def send_to_printer(arx4_path: str, printer_name: str = None) -> int:
 
 
 def extract_data(arx4_path: str, xml_path: str = None,
-                 image_path: str = None, size: str = None) -> int:
+                 image_path: str = None, size: str = None,
+                 printer_name: str = None) -> int:
     """ARX4 → XML/이미지 추출."""
     args = ["extract", "-A", arx4_path]
     if xml_path:
@@ -517,7 +565,7 @@ def extract_data(arx4_path: str, xml_path: str = None,
         args += ["-I", image_path]
     if size:
         args += ["-S", size]
-    return _run(args)
+    return _run(args, printer_name=printer_name)
 
 
 def get_status(printer_name: str = None, status_csv: str = None,

@@ -2,9 +2,10 @@ import logging
 import os
 import shutil
 import tempfile
+import time
 import zipfile
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 import config
 
@@ -120,6 +121,7 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
     from garment_cli import (
         create_arx4,
         describe_cli_selection,
+        extract_data,
         preferred_data_extension,
         printer_driver_summary,
         send_to_printer,
@@ -128,7 +130,7 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
 
     tmp_dir = tempfile.mkdtemp(prefix="garment_")
     try:
-        logger.info("  가먼트 실행 설정: %s", describe_cli_selection())
+        logger.info("  가먼트 실행 설정: %s", describe_cli_selection(printer_name))
         logger.info("  가먼트 프린터 드라이버: %s", printer_driver_summary(printer_name))
 
         # 플레이트 선택: 아동(플레이트 교체) → 10x12, 성인(기본) → 14x16
@@ -151,15 +153,18 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
             png_path = os.path.join(tmp_dir, f"page_{i}.png")
             arx4_path = os.path.join(tmp_dir, f"page_{i}{data_ext}")
 
-            _flatten_to_white(img).save(png_path, "PNG")
+            flat_img = _flatten_to_white(img)
+            flat_img.save(png_path, "PNG", dpi=(config.RENDER_DPI, config.RENDER_DPI))
 
             base_w, base_h = _image_dims_mm10(img)
+            non_white_pixels, non_white_bbox = _non_white_stats(flat_img)
             if config.AUTO_FIT and not manual_size:
-                # 플레이트에 contain — 축소만(작으면 scale=1.0=원본), 크면 비율 유지 축소
+                # GTXpro는 DPI 없는 PNG + -R 조합에서 기본 DPI 해석이 달라질 수 있다.
+                # AUTO_FIT은 0.1mm 절대 크기(-S)로 넘겨 API의 DPI 추정에 의존하지 않는다.
                 scale = min(platen_w / max(1, base_w), platen_h / max(1, base_h), 1.0)
                 eff_w, eff_h = int(round(base_w * scale)), int(round(base_h * scale))
-                size = None
-                magnification = f"{int(round(scale * 1000)):04d}"
+                size = f"{eff_w:04d}{eff_h:04d}"
+                magnification = None
                 position = _calc_fit_position(eff_w, eff_h, platen_w, platen_h)
             elif manual_size:
                 # SIZE 수동 지정 우선
@@ -185,9 +190,15 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
                 )
 
             logger.info(
-                "  배치 — %s 플레이트 %dx%d, 이미지 %dx%d (0.1mm), 위치 %s",
+                "  배치 — %s 플레이트 %dx%d, 이미지 %dx%d (0.1mm), 위치 %s, size=%s, mag=%s",
                 platen_label, platen_w, platen_h, eff_w, eff_h,
-                position or config.POSITION,
+                position or config.POSITION, size or "-", magnification or "-",
+            )
+            logger.info(
+                "  이미지 진단 — dpi=%s, nonWhite=%d, bbox=%s",
+                img.info.get("dpi") or f"default:{config.RENDER_DPI}",
+                non_white_pixels,
+                non_white_bbox or "-",
             )
 
             logger.info("  페이지 %d/%d 인쇄 데이터 생성 중 (%s)...", i + 1, len(images), data_ext)
@@ -199,6 +210,14 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
             )
             if rc != 0:
                 raise RuntimeError(f"인쇄 데이터 생성 실패 (코드: {rc})")
+
+            _extract_arx_diagnostic(
+                extract_data=extract_data,
+                arx_path=arx4_path,
+                page=i,
+                data_ext=data_ext,
+                printer_name=printer_name,
+            )
 
             logger.info("  페이지 %d/%d 프린터 전송 중 (%s)...", i + 1, len(images), printer_name)
             rc = send_to_printer(arx4_path, printer_name)
@@ -253,6 +272,44 @@ def _flatten_to_white(img: Image.Image) -> Image.Image:
     flat = Image.new("RGB", img.size, (255, 255, 255))
     flat.paste(img.convert("RGB"), mask=mask)
     return flat
+
+
+def _non_white_stats(img: Image.Image) -> tuple[int, tuple[int, int, int, int] | None]:
+    """RGB(255,255,255)가 아닌 픽셀 수와 bounding box."""
+    rgb = img.convert("RGB")
+    white = Image.new("RGB", rgb.size, (255, 255, 255))
+    diff = ImageChops.difference(rgb, white)
+    bbox = diff.getbbox()
+    if bbox is None:
+        return 0, None
+    mask = diff.convert("L").point(lambda v: 255 if v else 0)
+    count = mask.histogram()[255]
+    return count, bbox
+
+
+def _extract_arx_diagnostic(extract_data, arx_path: str, page: int, data_ext: str, printer_name: str) -> None:
+    """생성된 ARX/ARXP 내부 이미지와 XML을 진단 폴더에 추출한다."""
+    diag_dir = os.path.join(os.path.dirname(config.LOG_FILE), "diagnostics")
+    os.makedirs(diag_dir, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    stem = f"garment-extract-{stamp}-p{page + 1}"
+    arx_copy = os.path.join(diag_dir, f"{stem}{data_ext}")
+    xml_out = os.path.join(diag_dir, f"{stem}.xml")
+    img_out = os.path.join(diag_dir, f"{stem}.png")
+    try:
+        shutil.copy2(arx_path, arx_copy)
+    except OSError as e:
+        logger.warning("  인쇄 데이터 진단 원본 복사 실패: %s", e)
+    rc = extract_data(
+        arx_path,
+        xml_path=xml_out,
+        image_path=img_out,
+        printer_name=printer_name,
+    )
+    if rc == 0:
+        logger.info("  인쇄 데이터 추출 진단 저장: %s, %s, %s", arx_copy, xml_out, img_out)
+    else:
+        logger.warning("  인쇄 데이터 추출 진단 실패 (%s, rc=%s)", data_ext, rc)
 
 
 def _unique_path(path: str) -> str:

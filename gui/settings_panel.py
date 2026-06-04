@@ -467,31 +467,34 @@ class SettingsPanel(ctk.CTkFrame):
     def _build_garment_cli(self, parent) -> None:
         parent.grid_columnconfigure(1, weight=1)
 
-        # CLI/DLL 은 실행파일에 임베드되어 자동 탐색되므로 경로 설정 불필요.
         ctk.CTkLabel(
             parent,
-            text="CLI/DLL 임베드 — 경로 설정 불필요 (실행 시 자동 선택)",
+            text="기본은 Windows 드라이버명으로 장비 계열을 자동 선택",
             font=ctk.CTkFont(family=_font_family(), size=10),
             text_color=theme.TEXT_MUTED,
         ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
 
+        cli_opts = ["auto: 자동", "pro: GTXpro", "legacy: GTX-4"]
+        current_cli = next((opt for opt in cli_opts if opt.startswith(config.GTX_CLI + ":")), cli_opts[0])
+        self._gtx_cli = self._combo(parent, "장비 계열", cli_opts, current_cli, 1)
+
         platen_opts = ["0: 16x21", "1: 16x18", "2: 14x16", "3: 10x12", "4: 7x8"]
         current_platen = platen_opts[config.PLATEN_SIZE] if config.PLATEN_SIZE < len(platen_opts) else platen_opts[0]
-        self._platen_size = self._combo(parent, "플래튼", platen_opts, current_platen, 1)
+        self._platen_size = self._combo(parent, "플래튼", platen_opts, current_platen, 2)
 
         ink_opts = ["0: Color", "1: White", "2: Color+White", "3: Black"]
         current_ink = ink_opts[config.INK] if config.INK < len(ink_opts) else ink_opts[0]
-        self._ink = self._combo(parent, "잉크", ink_opts, current_ink, 2)
+        self._ink = self._combo(parent, "잉크", ink_opts, current_ink, 3)
 
-        self._copies = self._entry(parent, "매수", str(config.COPIES), 3)
-        self._position = self._entry(parent, "위치(8자리)", config.POSITION, 4)
+        self._copies = self._entry(parent, "매수", str(config.COPIES), 4)
+        self._position = self._entry(parent, "위치(8자리)", config.POSITION, 5)
 
         ctk.CTkLabel(
             parent,
             text="고급 파라미터는 config.ini 직접 편집",
             font=ctk.CTkFont(family=_font_family(), size=10),
             text_color=theme.TEXT_MUTED,
-        ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
     # ── 렌더링 ──────────────────────────────
     def _build_render(self, parent) -> None:
@@ -542,6 +545,7 @@ class SettingsPanel(ctk.CTkFrame):
             config.save_value("paths", "error", self._error_dir.get())
             config.save_value("download", "dir", self._download_dir.get())
 
+            config.save_value("garment_cli", "gtx_cli", self._gtx_cli.get().split(":")[0])
             config.save_value("garment_cli", "platen_size", self._platen_size.get().split(":")[0])
             config.save_value("garment_cli", "ink", self._ink.get().split(":")[0])
             config.save_value("garment_cli", "copies", self._copies.get())
