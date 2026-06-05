@@ -546,12 +546,13 @@ def create_arx4(xml_path: str, image_path: str, arx4_path: str,
 
 def send_to_printer(arx4_path: str, printer_name: str = None) -> int:
     """ARX4 → 프린터 전송."""
-    return _run([
-        "send",
-        "-A", arx4_path,
-        "-P", printer_name or config.PRINTER_NAME,
-        "-D", "1",
-    ], printer_name=printer_name or config.PRINTER_NAME)
+    target = printer_name or config.PRINTER_NAME
+    args = ["send", "-A", arx4_path, "-P", target]
+    # -D(인쇄 후 자동 작업 삭제)는 GTXpro CMD 전용 옵션이다. GTX-4 CMD send 에
+    # 넘기면 -3301(option cannot be used with send)로 실패하므로 pro 에서만 부여한다.
+    if preferred_data_extension(target) == ".arxp":
+        args += ["-D", "1"]
+    return _run(args, printer_name=target)
 
 
 def extract_data(arx4_path: str, xml_path: str = None,
