@@ -79,9 +79,15 @@ def build_xml(output_path: str, **overrides):
         ("bUniPrint", _b(_v("uni_print", "UNI_PRINT"))),
     ])
 
+    # legacy(GTX-4)는 가이드 §3-1-2 정의 순서(byInk→bEcoMode→byResolution)를 그대로
+    # 따른다. common_elements(byInk 뒤 byResolution)는 pro 전용 순서이므로 재사용하지 않는다.
     elements = [
-        *common_elements,
+        ("szFileName", ""),
+        ("uiCopies", str(_v("copies", "COPIES"))),
+        ("byPlatenSize", str(_v("platen_size", "PLATEN_SIZE"))),
+        ("byInk", str(_v("ink", "INK"))),
         ("bEcoMode", _b(_v("eco_mode", "ECO_MODE"))),
+        ("byResolution", str(_v("resolution", "RESOLUTION"))),
         ("byHighlight", str(_v("highlight", "HIGHLIGHT"))),
         ("byMask", str(_v("mask", "MASK"))),
         ("byInkVolume", str(_v("ink_volume", "INK_VOLUME"))),
