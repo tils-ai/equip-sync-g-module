@@ -67,6 +67,7 @@ class WatcherApp(ctk.CTk):
 
         self._observer = None
         self._agent = None
+        self._device_poller = None
         self._watcher_running = False
         self._agent_running = False
 
@@ -150,6 +151,8 @@ class WatcherApp(ctk.CTk):
 
     # ── 라이프사이클 ──────────────────────────────────
     def _start_services(self) -> None:
+        # 장비 상태 폴러는 agent/watcher 와 독립 — 항상 시작(내부에서 enabled 가드)
+        self._start_device_poller()
         # API 인증 정보가 있으면 Agent 모드 우선 (Watcher 와 폴더 충돌 방지)
         if config.API_KEY and config.API_TENANT:
             self._start_agent()
@@ -247,6 +250,60 @@ class WatcherApp(ctk.CTk):
         self._agent_running = False
         logger.info("agent 정지됨")
 
+    # ── 장비 상태 폴러 ─────────────────────────────────
+    def _start_device_poller(self) -> None:
+        if self._device_poller is not None:
+            return
+        try:
+            from device_status import DeviceStatusPoller
+        except Exception:
+            logger.exception("device_status 로딩 실패")
+            return
+        try:
+            self._device_poller = DeviceStatusPoller()
+            self._device_poller.on_error = lambda st: self._on_device_error(st)
+            self._device_poller.start()
+        except Exception:
+            logger.exception("장비 상태 폴러 시작 실패")
+
+    def _stop_device_poller(self) -> None:
+        try:
+            if self._device_poller:
+                self._device_poller.stop()
+                self._device_poller = None
+        except Exception:
+            logger.exception("장비 상태 폴러 정지 실패")
+
+    def _on_device_error(self, status: dict) -> None:
+        errs = status.get("errors") or []
+        detail = "; ".join(errs) if errs else "Error stop"
+        label = status.get("current_file") or "장비"
+        self._push_recent(label, "error", f"장비 에러 — {detail}")
+        logger.error("장비 에러 감지 — %s (status=%s)", detail, status.get("raw"))
+
+    def _update_device_card(self) -> None:
+        poller = self._device_poller
+        st = poller.latest if poller is not None else None
+        if st is None:
+            self.cards.set_device("오프라인", "muted")
+            return
+        state = st.get("state")
+        if state == "error":
+            self.cards.set_device("에러", "danger")
+        elif state == "printing":
+            cf = st.get("current_file")
+            if cf:
+                short = cf if len(cf) <= 14 else cf[:12] + "…"
+                self.cards.set_device(f"출력중·{short}", "active")
+            else:
+                self.cards.set_device("출력중", "active")
+        elif state == "init":
+            self.cards.set_device("초기화", "muted")
+        elif state == "menu":
+            self.cards.set_device("메뉴", "muted")
+        else:  # ready / standby / unknown
+            self.cards.set_device("대기", "muted")
+
     # ── tick / log ──────────────────────────────────
     def _tick(self) -> None:
         # Agent 모드 우선 — 실제로 일하는 모듈이 노출하는 상태를 카드에 반영.
@@ -277,6 +334,8 @@ class WatcherApp(ctk.CTk):
         else:
             self.control.set_agent(running=False, detail="스토어 ID 미설정 — 설정 패널에서 입력", enabled=False)
 
+        self._update_device_card()
+
         self.control.tick()
         self._after_id = self.after(self.REFRESH_MS, self._tick)
 
@@ -301,6 +360,10 @@ class WatcherApp(ctk.CTk):
             pass
         try:
             self._stop_watcher()
+        except Exception:
+            pass
+        try:
+            self._stop_device_poller()
         except Exception:
             pass
         self.destroy()
