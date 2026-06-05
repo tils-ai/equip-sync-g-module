@@ -6,6 +6,7 @@ pyinstaller --onefile --windowed ^
     --hidden-import=win32print ^
     --hidden-import=win32ui ^
     --hidden-import=win32api ^
+    --hidden-import=device_status ^
     --collect-all customtkinter ^
     --collect-all reportlab ^
     --collect-all qrcode ^

@@ -391,6 +391,10 @@ API_KEY = _ini.get("api", "api_key", fallback="")
 API_BASE_URL = _ini.get("api", "base_url", fallback="https://store.dpl.shop")
 API_POLL_INTERVAL = _ini.getint("api", "poll_interval", fallback=5)
 
+# --- device (장비 상태 폴링, LAN 연결 프린터 전용) ---
+DEVICE_STATUS_ENABLED = _ini.getboolean("device", "status_enabled", fallback=True)
+DEVICE_STATUS_INTERVAL = _ini.getint("device", "status_interval", fallback=5)
+
 # --- download (legacy — 명시되지 않으면 incoming과 통합) ---
 DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or INCOMING_DIR
 
@@ -447,6 +451,7 @@ def reload():
     global INCOMING_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR
     global RENDER_DPI, POPPLER_PATH, LOG_FILE, LOG_LEVEL
     global API_TENANT, API_KEY, API_BASE_URL, API_POLL_INTERVAL, DOWNLOAD_DIR
+    global DEVICE_STATUS_ENABLED, DEVICE_STATUS_INTERVAL
 
     _ini.read(INI_PATH, encoding="utf-8")
 
@@ -496,6 +501,8 @@ def reload():
     API_KEY = _ini.get("api", "api_key", fallback="")
     API_BASE_URL = _ini.get("api", "base_url", fallback="https://store.dpl.shop")
     API_POLL_INTERVAL = _ini.getint("api", "poll_interval", fallback=5)
+    DEVICE_STATUS_ENABLED = _ini.getboolean("device", "status_enabled", fallback=True)
+    DEVICE_STATUS_INTERVAL = _ini.getint("device", "status_interval", fallback=5)
     DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or INCOMING_DIR
 
     for _d in (INCOMING_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR, DOWNLOAD_DIR, os.path.dirname(LOG_FILE)):
