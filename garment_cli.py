@@ -3,10 +3,12 @@
 legacy/pro 두 계열의 가먼트 CLI 를 auto-probe 로 선택한다(실제 벤더 도구는 빌드 시 중립명으로 복원됨).
 """
 
+import csv
 import datetime
 import logging
 import os
 import subprocess
+import tempfile
 
 import config
 
@@ -580,6 +582,124 @@ def get_status(printer_name: str = None, status_csv: str = None,
     if maint_csv:
         args += ["-M", maint_csv]
     return _run(args)
+
+
+# Printer Status 비트 (가이드 §3-5-2, legacy/pro 공통)
+_PS_INITIALIZING = 0x01
+_PS_STANDBY = 0x02
+_PS_READY = 0x04
+_PS_PRINTING = 0x08
+_PS_MENU_ACTIVE = 0x10
+_PS_ERROR_STOP = 0x20
+
+# 에러코드 행 — 심각(error) vs 경고(warning) 구분. (가이드 샘플 오타 "Usal Error" 병행 매칭)
+_FATAL_KEYS = ("Fatal Error", "Fatal Error2", "Usual Error", "Usal Error")
+_WARN_KEYS = ("Wait OK", "Wait OK2", "Warning")
+
+
+def read_printer_status(printer_name: str = None) -> dict | None:
+    """프린터 status CSV 를 조회·파싱해 상태 dict 반환. 실패 시 None.
+
+    status 명령은 LAN 연결 프린터 전용이므로, USB 연결/미연결/조회 실패 시
+    None 을 돌려준다(= 오프라인). GTXpro 는 Current File/Current JobID 까지
+    제공하나 legacy(GTX-4) 는 Printer Status 비트 + 에러코드만 제공한다.
+    """
+    target = printer_name or config.PRINTER_NAME
+    if not target:
+        return None
+    fd, path = tempfile.mkstemp(suffix=".csv", prefix="gtx_status_")
+    os.close(fd)
+    try:
+        rc = get_status(target, status_csv=path)
+        if rc != 0 or not os.path.isfile(path):
+            return None
+        with open(path, encoding="utf-8-sig", errors="ignore", newline="") as f:
+            rows = list(csv.reader(f))
+    except Exception:
+        logger.debug("status CSV 조회/파싱 실패", exc_info=True)
+        return None
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    return _parse_status_rows(rows)
+
+
+def _parse_status_rows(rows: list) -> dict | None:
+    """status CSV 행들을 상태 dict 로 변환. Printer Status 가 없으면 None."""
+    fields: dict[str, list[str]] = {}
+    for row in rows:
+        if not row:
+            continue
+        key = (row[0] or "").strip()
+        if key:
+            fields[key] = [c.strip() for c in row[1:]]
+
+    raw = (fields.get("Printer Status") or [""])[0]
+    if raw == "":
+        return None
+    try:
+        value = int(raw, 16)
+    except ValueError:
+        return None
+
+    errors = [
+        f"{k}: {', '.join(c for c in fields[k] if c not in ('', '0'))}"
+        for k in _FATAL_KEYS
+        if k in fields and any(c not in ("", "0") for c in fields[k])
+    ]
+    warnings = [
+        f"{k}: {', '.join(c for c in fields[k] if c not in ('', '0'))}"
+        for k in _WARN_KEYS
+        if k in fields and any(c not in ("", "0") for c in fields[k])
+    ]
+
+    error_stop = bool(value & _PS_ERROR_STOP)
+    printing = bool(value & _PS_PRINTING)
+    ready = bool(value & _PS_READY)
+    standby = bool(value & _PS_STANDBY)
+    initializing = bool(value & _PS_INITIALIZING)
+    menu_active = bool(value & _PS_MENU_ACTIVE)
+    has_error = error_stop or bool(errors)
+
+    if has_error:
+        state = "error"
+    elif printing:
+        state = "printing"
+    elif initializing:
+        state = "init"
+    elif ready:
+        state = "ready"
+    elif standby:
+        state = "standby"
+    elif menu_active:
+        state = "menu"
+    else:
+        state = "unknown"
+
+    def _first(key):
+        v = fields.get(key) or [""]
+        return v[0] or None
+
+    return {
+        "raw": raw,
+        "value": value,
+        "printing": printing,
+        "ready": ready,
+        "standby": standby,
+        "initializing": initializing,
+        "menu_active": menu_active,
+        "error_stop": error_stop,
+        "error": has_error,
+        "warning": bool(warnings),
+        "state": state,
+        "errors": errors,
+        "warnings": warnings,
+        "current_file": _first("Current File"),
+        "current_jobid": _first("Current JobID"),
+    }
 
 
 def circulation(printer_name: str = None) -> int:
