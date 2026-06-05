@@ -58,6 +58,7 @@ jobs:
             --hidden-import=certifi `
             --hidden-import=charset_normalizer `
             --hidden-import=idna `
+            --hidden-import=device_status `
             --collect-all customtkinter `
             --collect-all reportlab `
             --collect-all qrcode `
