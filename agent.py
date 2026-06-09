@@ -1,16 +1,24 @@
-"""가먼트 프린터 Agent — dps-store API 풀링 → 디자인/작업지시서 두 종 출력."""
+"""가먼트 프린터 Agent — dps-store API 풀링 → 디자인/작업지시서 두 종 출력.
 
+작업자 수동 전송 워크플로우 (20260609-garment-worker-gated-print):
+  - 다운로드 단계(폴링 스레드, 자동): 디자인을 로컬에 받고 mark_downloaded → READY 큐 적재.
+  - 출력 단계(프린터별 워커 스레드): 작업자 GUI 클릭(manual) 또는 자동(auto)으로 장비 전송 + 지시서 출력.
+    프린터 1대면 1건씩 순차, 여러 대면 프린터당 1건씩(워커=프린터 수만큼 동시).
+"""
+
+import json
 import logging
 import os
+import queue
 import shutil
 import threading
 import time
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 import requests
 
 import config
-import dispatcher
 from api_client import GarmentApiClient
 from auth import authenticate
 from processor import process_file
@@ -58,8 +66,88 @@ def _is_image(path: str) -> bool:
     return os.path.splitext(path)[1].lower() in (".png", ".jpg", ".jpeg")
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# READY 스토어 — 다운로드 완료 후 작업자 출력 대기 큐 (로컬 영속화로 크래시 복구)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class ReadyItem:
+    """다운로드 완료(READY) 큐 1건 — 작업자 출력 대기.
+
+    do_garment / do_work_order 는 아직 전송하지 않은 sub 를 나타낸다.
+    sub 가 전송완료(SENT)되면 False 로 내려가고, 둘 다 False 면 스토어에서 제거.
+    """
+
+    job: dict
+    download_path: str
+    do_garment: bool
+    do_work_order: bool
+
+    @property
+    def id(self) -> str:
+        return self.job.get("id", "")
+
+    @property
+    def filename(self) -> str:
+        return _make_filename(self.job)
+
+
+def _ready_store_path() -> str:
+    return os.path.join(config.DOWNLOAD_DIR, "ready.json")
+
+
+def _load_ready_store() -> list[ReadyItem]:
+    """ready.json 복원 — 다운로드 파일이 실제로 남아 있는 항목만."""
+    path = _ready_store_path()
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception as e:
+        logger.error("ready.json 로드 실패: %s", e)
+        return []
+
+    items: list[ReadyItem] = []
+    for r in raw if isinstance(raw, list) else []:
+        it = ReadyItem(
+            job=r.get("job", {}) or {},
+            download_path=r.get("download_path", ""),
+            do_garment=bool(r.get("do_garment", False)),
+            do_work_order=bool(r.get("do_work_order", False)),
+        )
+        if it.id and it.download_path and os.path.exists(it.download_path):
+            items.append(it)
+        else:
+            logger.warning("ready.json 항목 스킵 (파일 없음): %s", it.id or "(no id)")
+    return items
+
+
+def _save_ready_store(items: list[ReadyItem]) -> None:
+    """ready.json 원자적 저장."""
+    path = _ready_store_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = [
+            {
+                "job": it.job,
+                "download_path": it.download_path,
+                "do_garment": it.do_garment,
+                "do_work_order": it.do_work_order,
+            }
+            for it in items
+        ]
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    except Exception as e:
+        logger.error("ready.json 저장 실패: %s", e)
+
+
 class AgentWorker:
-    """풀링 루프를 백그라운드 스레드에서 실행."""
+    """풀링(다운로드) 루프 + 프린터별 출력 워커를 백그라운드 스레드에서 실행."""
 
     def __init__(self):
         self._running = False
@@ -69,12 +157,22 @@ class AgentWorker:
         self.on_started: Optional[Callable[[], None]] = None
         self.on_stopped: Optional[Callable[[], None]] = None
         self.on_downloaded: Optional[Callable[[str], None]] = None
+        # 작업자 수동 전송 워크플로우 콜백
+        self.on_ready: Optional[Callable[[ReadyItem], None]] = None  # READY 적재(그리드 추가)
+        self.on_printing: Optional[Callable[[str, str], None]] = None  # (item_id, printer) 전송 시작
+        self.on_item_removed: Optional[Callable[[str], None]] = None  # 전송완료/제거(그리드 제거)
         self.on_done: Optional[Callable[[str], None]] = None
         self.on_error: Optional[Callable[[str], None]] = None
         self.on_auth_expired: Optional[Callable[[], None]] = None
         # 카드 표시용 — 최근 풀링 응답 기준 잔여 잡 수 / 현재 잡 처리 중 여부
         self._pending_count = 0
         self._processing = False
+        # READY 스토어 + 출력 큐
+        self._ready_lock = threading.Lock()
+        self._ready: dict[str, ReadyItem] = {}
+        self._enqueued: set[str] = set()  # 출력 큐 투입/처리 중 — 중복 방지
+        self._print_queue: "queue.Queue[str]" = queue.Queue()
+        self._print_threads: list[threading.Thread] = []
 
     @property
     def running(self) -> bool:
@@ -92,8 +190,19 @@ class AgentWorker:
 
     @property
     def is_processing(self) -> bool:
-        """현재 _process_job 실행 중 여부."""
+        """현재 다운로드 처리 중 여부."""
         return self._processing
+
+    @property
+    def ready_count(self) -> int:
+        """출력 대기(READY) 항목 수."""
+        with self._ready_lock:
+            return len(self._ready)
+
+    def ready_snapshot(self) -> list[ReadyItem]:
+        """현재 READY 항목 목록 복사본 (GUI 재구성용)."""
+        with self._ready_lock:
+            return list(self._ready.values())
 
     def start(self):
         """Agent 시작 — API 키 없으면 Device Auth 자동 트리거."""
@@ -121,21 +230,67 @@ class AgentWorker:
         except Exception:
             logger.exception("인증 오류")
 
+    def _printer_pool(self) -> list[Optional[str]]:
+        """출력 워커가 바인딩할 프린터 목록. 프린터당 워커 1개(=프린터별 직렬, 여러 대면 동시).
+
+        - 프린터 미설정: [None] 1개 (가먼트 출력은 스킵, 작업지시서만 처리하는 PC 등).
+        - single 분배: 첫 프린터 1개.
+        - round_robin: 설정된 프린터 전부.
+        """
+        names = list(config.GARMENT_PRINTER_NAMES or [])
+        if not names:
+            return [config.GARMENT_PRINTER_NAME or None]
+        if config.GARMENT_DISPATCH == "single":
+            return [names[0]]
+        return names
+
     def _start_polling(self):
         self._client = GarmentApiClient(config.API_BASE_URL, config.API_KEY)
         self._running = True
+
+        # 출력 워커 — 프린터별 1개 (프린터 수만큼 동시 전송)
+        self._print_threads = []
+        for printer_name in self._printer_pool():
+            t = threading.Thread(target=self._print_loop, args=(printer_name,), daemon=True)
+            t.start()
+            self._print_threads.append(t)
+
+        # 크래시 복구 — ready.json 복원 → 그리드 재구성. auto 모드면 곧바로 출력 큐 투입.
+        self._restore_ready_store()
+
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
-        logger.info("Agent 풀링 시작 — 서버: %s", config.API_BASE_URL)
+        logger.info(
+            "Agent 풀링 시작 — 서버: %s, 출력 모드: %s, 워커: %d",
+            config.API_BASE_URL, config.GARMENT_PRINT_MODE, len(self._print_threads),
+        )
         _fire(self.on_started)
+
+    def _restore_ready_store(self):
+        """재시작 시 ready.json 복원."""
+        restored = _load_ready_store()
+        if not restored:
+            return
+        with self._ready_lock:
+            for it in restored:
+                self._ready[it.id] = it
+        logger.info("READY 복원 — %d건", len(restored))
+        for it in restored:
+            _fire(self.on_ready, it)
+            if config.GARMENT_PRINT_MODE == "auto":
+                self.print_ready(it.id)
 
     def stop(self):
         self._running = False
         if self._thread:
             self._thread.join(timeout=5)
             self._thread = None
+        # 출력 워커는 daemon + 큐 timeout 으로 자연 종료
+        self._print_threads = []
         logger.info("Agent 중지됨")
         _fire(self.on_stopped)
+
+    # ── 풀링(다운로드) 루프 ──────────────────────────────────────────────
 
     def _loop(self):
         empty_count = 0
@@ -144,15 +299,12 @@ class AgentWorker:
 
         while self._running:
             try:
-                # 클라이언트 capability 를 서버에 전달 — work_order_enabled=false 인 PC 가
-                # workOrder 만 PENDING 인 큐를 받아 무한 스킵 루프 도는 문제 차단.
                 data = self._client.get_pending_jobs(
                     garment_enabled=bool(config.GARMENT_ENABLED and config.GARMENT_PRINTER_NAME),
                     work_order_enabled=bool(config.WORK_ORDER_ENABLED and config.WORK_ORDER_PRINTER_NAME),
                 )
                 jobs = data.get("jobs", [])
 
-                # 서버 지정 풀링 간격 반영
                 server_interval = data.get("pollInterval")
                 if server_interval and server_interval > 0:
                     base_interval = server_interval
@@ -175,14 +327,12 @@ class AgentWorker:
                     for job in jobs:
                         if not self._running:
                             break
-                        # 단일 잡 처리 중 발생한 예외가 풀링 루프 전체를 죽이지 않도록 격리.
-                        # 풀링 루프가 죽으면 이미 PRINTING 으로 마킹된 잡이 영원히 회수되지 않음.
                         self._processing = True
                         try:
-                            self._process_job(job)
+                            self._download_job(job)
                         except Exception:
                             logger.exception(
-                                "잡 처리 중 예외 — 다음 잡으로 진행 (job_id=%s)",
+                                "다운로드 처리 중 예외 — 다음 잡으로 진행 (job_id=%s)",
                                 job.get("id"),
                             )
                         finally:
@@ -197,14 +347,13 @@ class AgentWorker:
                 empty_count += 1
 
             interval = _get_backoff_interval(empty_count, base_interval)
-            # 1초 단위로 체크하면서 대기 (빠른 중지 대응)
             waited = 0.0
             while waited < interval and self._running:
                 time.sleep(1)
                 waited += 1
 
-    def _process_job(self, job: dict):
-        """큐 1건 처리 — 지시서 먼저, 가먼트 나중 (두 토글/pending 독립)."""
+    def _download_job(self, job: dict):
+        """다운로드 단계 — 디자인 다운로드 + READY 적재 + mark_downloaded. 장비 전송 안 함."""
         job_id = job["id"]
         url = job["designFileUrl"]
         filename = _make_filename(job)
@@ -213,16 +362,12 @@ class AgentWorker:
         garment_pending = bool(job.get("garmentPending", True))
         work_order_pending = bool(job.get("workOrderPending", False))
 
-        # 클라이언트 토글로 거름 — 서버에서는 두 sub 모두 PENDING이지만 PC가 OFF면 건드리지 않는다.
+        # 클라이언트 토글로 거름 — 서버에서는 PENDING 이어도 PC 토글 OFF면 건드리지 않는다.
         do_work_order = work_order_pending and config.WORK_ORDER_ENABLED and config.WORK_ORDER_PRINTER_NAME
         do_garment = garment_pending and config.GARMENT_ENABLED and config.GARMENT_PRINTER_NAME
 
-        # 진단 가능성을 위해 풀링 응답의 sub status 와 토글 매칭을 항상 한 줄로 남긴다.
-        # capability 분리가 안 된 구버전 서버와 페어링될 때 같은 잡이 무한 반복 풀링되는 케이스를
-        # 사용자가 즉시 식별할 수 있게 함 (dps-store 20260520-garment-pull-capability-split 참조).
         logger.info(
-            "잡 수신 id=%s file=%s garmentPending=%s workOrderPending=%s "
-            "→ do_garment=%s do_work_order=%s",
+            "잡 수신 id=%s file=%s garmentPending=%s workOrderPending=%s → do_garment=%s do_work_order=%s",
             job_id, filename, garment_pending, work_order_pending, do_garment, do_work_order,
         )
 
@@ -231,10 +376,9 @@ class AgentWorker:
             logger.info("스킵 (%s) id=%s file=%s", reason, job_id, filename)
             return
 
-        # 디자인 파일 다운로드 — 양쪽 모두 PNG 미리보기/출력에 필요
+        # 디자인 파일 다운로드 — 그리드 썸네일/출력에 필요
         logger.info("다운로드: %s", filename)
         if not _download_pdf(url, download_path):
-            # 다운로드 실패 시 활성화된 작업만 failed 보고
             if do_work_order:
                 self._report_failed(job_id, "workOrder", "디자인 파일 다운로드 실패")
             if do_garment:
@@ -244,21 +388,85 @@ class AgentWorker:
 
         _fire(self.on_downloaded, filename)
 
+        # READY 적재 + 서버에 다운로드 완료 보고 (DOWNLOADING → READY)
+        item = ReadyItem(
+            job=job,
+            download_path=download_path,
+            do_garment=bool(do_garment),
+            do_work_order=bool(do_work_order),
+        )
+        with self._ready_lock:
+            self._ready[job_id] = item
+            self._persist_locked()
+        if do_garment:
+            self._report_downloaded(job_id, "garment")
+        if do_work_order:
+            self._report_downloaded(job_id, "workOrder")
+        logger.info("READY 적재: %s (mode=%s)", filename, config.GARMENT_PRINT_MODE)
+        _fire(self.on_ready, item)
+
+        # auto 모드면 곧바로 출력 큐 투입 (기존 동작과 동일)
+        if config.GARMENT_PRINT_MODE == "auto":
+            self.print_ready(job_id)
+
+    # ── 출력 단계 ────────────────────────────────────────────────────────
+
+    def print_ready(self, item_id: str) -> bool:
+        """READY 항목을 출력 큐에 투입 (GUI 클릭 또는 auto). 중복 투입 방지.
+
+        반환: 투입 성공 여부(이미 큐/처리 중이거나 없는 항목이면 False).
+        """
+        with self._ready_lock:
+            if item_id not in self._ready:
+                return False
+            if item_id in self._enqueued:
+                return False
+            self._enqueued.add(item_id)
+        self._print_queue.put(item_id)
+        return True
+
+    def _print_loop(self, printer_name: Optional[str]):
+        """프린터 1대에 바인딩된 출력 워커 — 큐에서 항목을 받아 1건씩 순차 전송."""
+        while self._running:
+            try:
+                item_id = self._print_queue.get(timeout=1)
+            except queue.Empty:
+                continue
+            try:
+                with self._ready_lock:
+                    item = self._ready.get(item_id)
+                if item is None:
+                    continue
+                self._print_item(item, printer_name)
+            except Exception:
+                logger.exception("출력 워커 예외 (item_id=%s)", item_id)
+            finally:
+                with self._ready_lock:
+                    self._enqueued.discard(item_id)
+                self._print_queue.task_done()
+
+    def _print_item(self, item: ReadyItem, printer_name: Optional[str]):
+        """READY 1건 전송 — 지시서 먼저, 가먼트 나중. 성공한 sub 는 SENT 처리하고 제거.
+
+        실패한 sub 는 서버가 READY 유지(작업자 재클릭)하므로 항목을 스토어에 남긴다.
+        """
+        job = item.job
+        job_id = item.id
+        filename = item.filename
+        download_path = item.download_path
+
+        _fire(self.on_printing, job_id, printer_name or "")
         any_error = False
 
-        # ── 가먼트 출력에 사용할 프린터를 미리 결정 ──
-        # 워크오더에 같은 이름을 박아 "디자인이 어느 장비로 갔는지" 작업자가 알 수 있게 한다.
-        garment_printer = dispatcher.next_printer() if do_garment else None
-
         # ── 1. 작업지시서 출력 (지시서 먼저) ──
-        if do_work_order:
+        if item.do_work_order:
             try:
                 logger.info("작업지시서 PDF 조립: %s", filename)
                 wo_meta = job.get("workOrder") or {}
                 idx = int(job.get("itemIndex", 1))
                 wo_pdf = os.path.join(
                     config.DOWNLOAD_DIR,
-                    f"{job.get('orderNumber','unknown')}_{idx:02d}_{job.get('wepnpSeqno','')}_지시서.pdf",
+                    f"{job.get('orderNumber', 'unknown')}_{idx:02d}_{job.get('wepnpSeqno', '')}_지시서.pdf",
                 )
                 build_work_order_pdf(
                     WorkOrderJob(
@@ -275,7 +483,7 @@ class AgentWorker:
                         item_total=int(job.get("itemTotal", 1)),
                         preview_image_path=download_path if _is_image(download_path) else None,
                         design_filename=filename,
-                        printer_name=garment_printer,
+                        printer_name=printer_name,
                     ),
                     wo_pdf,
                 )
@@ -283,6 +491,9 @@ class AgentWorker:
 
                 print_pdf_general(wo_pdf, config.WORK_ORDER_PRINTER_NAME)
                 self._report_printed(job_id, "workOrder")
+                with self._ready_lock:
+                    item.do_work_order = False
+                    self._persist_locked()
                 logger.info("작업지시서 출력 완료: %s", filename)
             except Exception as e:
                 any_error = True
@@ -290,13 +501,13 @@ class AgentWorker:
                 self._report_failed(job_id, "workOrder", str(e))
 
         # ── 2. 가먼트 디자인 출력 (가먼트 나중, quantity번 반복) ──
-        if do_garment:
+        if item.do_garment and printer_name:
             qty = max(1, int(job.get("quantity", 1)))
             needs_plate_change = bool(job.get("needsPlateChange", False))
             try:
                 logger.info(
                     "가먼트 출력 시작: %s → %s (x%d)%s",
-                    filename, garment_printer, qty,
+                    filename, printer_name, qty,
                     " [아동 플레이트]" if needs_plate_change else "",
                 )
                 for n in range(qty):
@@ -305,7 +516,7 @@ class AgentWorker:
                     logger.info("  [%d/%d]", n + 1, qty)
                     process_file(
                         download_path,
-                        printer_name=garment_printer,
+                        printer_name=printer_name,
                         needs_plate_change=needs_plate_change,
                     )
                     # process_file은 성공 시 done/으로 옮긴다 — 다음 회차 위해 복사본 복원 필요
@@ -314,6 +525,9 @@ class AgentWorker:
                         if os.path.exists(done_path):
                             shutil.copy(done_path, download_path)
                 self._report_printed(job_id, "garment")
+                with self._ready_lock:
+                    item.do_garment = False
+                    self._persist_locked()
                 logger.info("가먼트 출력 완료: %s", filename)
                 _fire(self.on_done, filename)
             except Exception as e:
@@ -326,14 +540,28 @@ class AgentWorker:
                         shutil.move(download_path, error_dest)
                     except Exception:
                         pass
+        elif item.do_garment and not printer_name:
+            any_error = True
+            logger.error("가먼트 처리 대상이나 프린터 미설정: %s", filename)
+            self._report_failed(job_id, "garment", "가먼트 프린터 미설정")
 
+        # 남은 sub 가 없으면 스토어/그리드에서 제거. 있으면(실패) 재클릭 위해 유지.
+        with self._ready_lock:
+            remaining = item.do_garment or item.do_work_order
+            if not remaining:
+                self._ready.pop(job_id, None)
+            self._persist_locked()
+        if not remaining:
+            _fire(self.on_item_removed, job_id)
         if any_error:
             _fire(self.on_error, filename)
 
+    def _persist_locked(self):
+        """_ready_lock 보유 상태에서 호출 — ready.json 저장."""
+        _save_ready_store(list(self._ready.values()))
+
     def _skip_reason(self, garment_pending: bool, work_order_pending: bool) -> str:
         """스킵 메시지에 붙일 사유 한 줄. 운영자가 토글 vs 서버 응답 미스매치를 즉시 식별."""
-        # 서버는 PENDING 인 sub 만 내려주는 것이 정상 (capability 가드 적용 후).
-        # 그럼에도 둘 다 처리 못 한다는 건 토글 OFF + sub PENDING 의 미스매치.
         g_off = not (config.GARMENT_ENABLED and config.GARMENT_PRINTER_NAME)
         w_off = not (config.WORK_ORDER_ENABLED and config.WORK_ORDER_PRINTER_NAME)
         if garment_pending and g_off and work_order_pending and w_off:
@@ -345,6 +573,12 @@ class AgentWorker:
         if not garment_pending and not work_order_pending:
             return "양쪽 sub 모두 PENDING 아님 — 다른 PC 가 이미 선점"
         return "스킵 사유 불명 (g=%s/w=%s)" % (garment_pending, work_order_pending)
+
+    def _report_downloaded(self, job_id: str, target: str):
+        try:
+            self._client.mark_downloaded(job_id, target)
+        except Exception as e:
+            logger.error("다운로드 완료 보고 실패 (%s): %s", target, e)
 
     def _report_printed(self, job_id: str, target: str):
         try:

@@ -41,8 +41,21 @@ class GarmentApiClient:
         resp.raise_for_status()
         return resp.json()
 
+    def mark_downloaded(self, job_id: str, target: str):
+        """PC 다운로드 완료 보고 (DOWNLOADING → READY). target: "garment" | "workOrder".
+
+        작업자 수동 전송 워크플로우 — 로컬에 디자인을 받아둔 시점에 호출.
+        장비 전송은 작업자 [출력] 클릭 시 mark_printed 로 보고.
+        """
+        resp = self.session.post(
+            f"{self.base_url}/api/printer/garment/{job_id}/downloaded",
+            json={"target": target},
+            timeout=10,
+        )
+        resp.raise_for_status()
+
     def mark_printed(self, job_id: str, target: str):
-        """출력 완료 보고. target: "garment" | "workOrder"."""
+        """장비 전송완료 보고 (→ SENT). target: "garment" | "workOrder"."""
         resp = self.session.post(
             f"{self.base_url}/api/printer/garment/{job_id}/printed",
             json={"target": target},
