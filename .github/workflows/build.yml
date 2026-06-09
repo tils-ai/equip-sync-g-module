@@ -23,16 +23,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install poppler via MSYS2
+      - name: Install poppler (prebuilt windows binaries)
         id: poppler
         shell: pwsh
         run: |
-          C:\msys64\usr\bin\pacman.exe -S --noconfirm mingw-w64-x86_64-poppler
-          $popplerBin = "C:\msys64\mingw64\bin"
-          if (-not (Test-Path "$popplerBin\pdftoppm.exe")) {
-            Write-Error "pdftoppm.exe not found in $popplerBin"
+          # MSYS2(pacman) keyring 이 러너 이미지에서 깨져 다운로드 실패하므로,
+          # 사전 빌드된 poppler-windows 바이너리(자체완결 Library/bin)를 직접 받는다.
+          $ver = "24.08.0-0"
+          $url = "https://github.com/oschwartz10612/poppler-windows/releases/download/v$ver/Release-$ver.zip"
+          Invoke-WebRequest -Uri $url -OutFile poppler.zip
+          Expand-Archive -Path poppler.zip -DestinationPath poppler_dist -Force
+          $pdftoppm = Get-ChildItem -Path poppler_dist -Recurse -Filter pdftoppm.exe | Select-Object -First 1
+          if (-not $pdftoppm) {
+            Write-Error "pdftoppm.exe not found in extracted poppler"
             exit 1
           }
+          $popplerBin = $pdftoppm.Directory.FullName
           echo "bin=$popplerBin" >> $env:GITHUB_OUTPUT
 
       - name: Restore vendor assets
