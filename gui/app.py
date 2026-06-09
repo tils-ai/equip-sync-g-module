@@ -20,6 +20,7 @@ import customtkinter as ctk
 import config
 
 from .cards import StatusCards
+from .download_grid import DownloadGrid
 from .header import Header
 from .log_box import LogBox, attach_logging
 from .op_control import OpControlBox
@@ -80,11 +81,12 @@ class WatcherApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=0)
-        self.grid_rowconfigure(1, weight=0)
-        self.grid_rowconfigure(2, weight=0)
-        self.grid_rowconfigure(3, weight=1)
-        self.grid_rowconfigure(4, weight=2)
+        self.grid_rowconfigure(0, weight=0)  # header
+        self.grid_rowconfigure(1, weight=0)  # cards
+        self.grid_rowconfigure(2, weight=0)  # control
+        self.grid_rowconfigure(3, weight=3)  # 출력 대기 그리드 (메인)
+        self.grid_rowconfigure(4, weight=0)  # recent
+        self.grid_rowconfigure(5, weight=1)  # log
 
         self.header = Header(
             self,
@@ -107,11 +109,14 @@ class WatcherApp(ctk.CTk):
         )
         self.control.grid(row=2, column=0, sticky="ew", padx=12, pady=4)
 
+        self.download_grid = DownloadGrid(self, on_print=self._on_print_clicked)
+        self.download_grid.grid(row=3, column=0, sticky="nsew", padx=12, pady=4)
+
         self.recent = RecentList(self)
-        self.recent.grid(row=3, column=0, sticky="nsew", padx=12, pady=4)
+        self.recent.grid(row=4, column=0, sticky="nsew", padx=12, pady=4)
 
         self.log = LogBox(self)
-        self.log.grid(row=4, column=0, sticky="nsew", padx=12, pady=(4, 12))
+        self.log.grid(row=5, column=0, sticky="nsew", padx=12, pady=(4, 12))
 
         attach_logging(self._log_queue)
 
@@ -210,6 +215,11 @@ class WatcherApp(ctk.CTk):
             self._agent.on_done = lambda fn: self._on_agent_done(fn)
             self._agent.on_error = lambda fn: self._on_agent_error(fn)
             self._agent.on_downloaded = lambda fn: self._on_agent_downloaded(fn)
+            # 출력 대기 그리드 wiring — 콜백은 백그라운드 스레드에서 오므로 after(0) 로 메인 마샬링
+            self._agent.on_ready = lambda it: self.after(0, lambda: self.download_grid.add_item(it))
+            self._agent.on_printing = lambda iid, pr: self.after(0, lambda: self.download_grid.set_printing(iid, pr))
+            self._agent.on_item_removed = lambda iid: self.after(0, lambda: self.download_grid.remove_item(iid))
+            self._agent.on_item_failed = lambda iid: self.after(0, lambda: self.download_grid.set_failed(iid))
             self._agent.start()
             self._agent_running = True
             if config.API_KEY:
@@ -230,6 +240,13 @@ class WatcherApp(ctk.CTk):
     def _on_agent_downloaded(self, filename: str) -> None:
         self._push_recent(filename, "ok", "다운로드")
 
+    def _on_print_clicked(self, item_id: str) -> None:
+        """출력 대기 카드 [출력] 클릭 → Agent 출력 큐 투입."""
+        if self._agent is None:
+            return
+        if not self._agent.print_ready(item_id):
+            logger.info("출력 투입 무시 — 이미 전송 중이거나 없는 항목: %s", item_id)
+
     def _push_recent(self, filename: str, status: str, detail: str) -> None:
         try:
             import time as _time
@@ -248,6 +265,10 @@ class WatcherApp(ctk.CTk):
         except Exception:
             logger.exception("agent 정지 실패")
         self._agent_running = False
+        try:
+            self.download_grid.clear()
+        except Exception:
+            logger.exception("출력 대기 그리드 정리 실패")
         logger.info("agent 정지됨")
 
     # ── 장비 상태 폴러 ─────────────────────────────────

@@ -161,6 +161,7 @@ class AgentWorker:
         self.on_ready: Optional[Callable[[ReadyItem], None]] = None  # READY 적재(그리드 추가)
         self.on_printing: Optional[Callable[[str, str], None]] = None  # (item_id, printer) 전송 시작
         self.on_item_removed: Optional[Callable[[str], None]] = None  # 전송완료/제거(그리드 제거)
+        self.on_item_failed: Optional[Callable[[str], None]] = None  # 전송 실패(그리드 재시도 표시)
         self.on_done: Optional[Callable[[str], None]] = None
         self.on_error: Optional[Callable[[str], None]] = None
         self.on_auth_expired: Optional[Callable[[], None]] = None
@@ -553,6 +554,8 @@ class AgentWorker:
             self._persist_locked()
         if not remaining:
             _fire(self.on_item_removed, job_id)
+        elif any_error:
+            _fire(self.on_item_failed, job_id)
         if any_error:
             _fire(self.on_error, filename)
 
