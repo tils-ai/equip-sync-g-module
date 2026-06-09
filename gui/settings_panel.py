@@ -305,7 +305,12 @@ class SettingsPanel(ctk.CTkFrame):
             self._work_order_enabled.select()
         else:
             self._work_order_enabled.deselect()
-        self._work_order_enabled.grid(row=7, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self._work_order_enabled.grid(row=7, column=0, columnspan=2, sticky="w", pady=(4, 8))
+
+        # 출력 전송 방식 — 수동(작업자가 그리드에서 클릭) / 자동(받는 즉시 전송)
+        self._print_mode_opts = ["수동 (작업자 클릭)", "자동 (즉시 전송)"]
+        current_print_mode = self._print_mode_opts[1] if config.GARMENT_PRINT_MODE == "auto" else self._print_mode_opts[0]
+        self._garment_print_mode = self._combo(parent, "전송 방식", self._print_mode_opts, current_print_mode, 8)
 
         # 초기 로드 (Windows에서만 실제 목록 채워짐)
         self._refresh_garment_printers()
@@ -536,6 +541,9 @@ class SettingsPanel(ctk.CTkFrame):
             config.save_value("printer", "garment_dispatch", dispatch_val)
             config.save_value("printer", "work_order_name", self._work_order_name.get())
             config.save_value("printer", "work_order_enabled", "true" if self._work_order_enabled.get() else "false")
+            # 전송 방식 — 콤보 라벨 → manual/auto
+            print_mode_val = "auto" if self._garment_print_mode.get() == self._print_mode_opts[1] else "manual"
+            config.save_value("printer", "garment_print_mode", print_mode_val)
             # 하위호환: 기존 name/mode도 가먼트 키와 동기화
             config.save_value("printer", "name", self._garment_name.get())
             config.save_value("printer", "mode", self._printer_mode.get())
