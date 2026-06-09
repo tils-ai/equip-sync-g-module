@@ -25,6 +25,8 @@ garment_enabled = true
 garment_mode = cli
 ; 다중 프린터 분배 방식: round_robin (작업마다 순차 회전) / single (항상 첫 번째만)
 garment_dispatch = round_robin
+; 출력 전송 방식: manual (다운로드 후 작업자가 GUI에서 클릭해 전송, 기본) / auto (받는 즉시 자동 전송)
+garment_print_mode = manual
 
 ; ── 작업지시서 프린터 (A4 레이저/잉크젯 등) ──
 ; 비워두면 작업지시서 미출력 (work_order_enabled=false와 동일 효과)
@@ -35,6 +37,12 @@ work_order_enabled = false
 ; (deprecated, 하위 호환) — 새 키 garment_name/garment_mode 사용
 name =
 mode = cli
+
+[device]
+; 장비 상태 폴링은 GTX CLI status 명령을 사용하며 LAN 연결 프린터 전용이다.
+; USB 연결 운영에서는 출력이 정상이어도 연결 실패(-2701)가 반복될 수 있으므로 기본 OFF.
+status_enabled = false
+status_interval = 5
 
 [garment_cli]
 ; 가먼트 CLI(legacy 계열) 경로 (비워두면 exe 폴더 → .source 폴더 순 탐색)
@@ -179,6 +187,10 @@ GARMENT_MODE = _ini.get("printer", "garment_mode", fallback=_ini.get("printer", 
 GARMENT_DISPATCH = _ini.get("printer", "garment_dispatch", fallback="round_robin").strip().lower()
 if GARMENT_DISPATCH not in ("round_robin", "single"):
     GARMENT_DISPATCH = "round_robin"
+# 출력 전송 방식 — manual: 다운로드 후 작업자 GUI 클릭으로 전송 / auto: 받는 즉시 자동 전송
+GARMENT_PRINT_MODE = _ini.get("printer", "garment_print_mode", fallback="manual").strip().lower()
+if GARMENT_PRINT_MODE not in ("manual", "auto"):
+    GARMENT_PRINT_MODE = "manual"
 
 # 작업지시서 프린터 (PDF, 일반 프린터)
 WORK_ORDER_PRINTER_NAME = _ini.get("printer", "work_order_name", fallback="").strip()
@@ -392,7 +404,7 @@ API_BASE_URL = _ini.get("api", "base_url", fallback="https://store.dpl.shop")
 API_POLL_INTERVAL = _ini.getint("api", "poll_interval", fallback=5)
 
 # --- device (장비 상태 폴링, LAN 연결 프린터 전용) ---
-DEVICE_STATUS_ENABLED = _ini.getboolean("device", "status_enabled", fallback=True)
+DEVICE_STATUS_ENABLED = _ini.getboolean("device", "status_enabled", fallback=False)
 DEVICE_STATUS_INTERVAL = _ini.getint("device", "status_interval", fallback=5)
 
 # --- download (legacy — 명시되지 않으면 incoming과 통합) ---
@@ -439,6 +451,7 @@ def reload():
     """config.ini를 다시 읽어서 모듈 변수를 갱신한다."""
     global PRINTER_NAME, PRINTER_NAMES, PRINTER_MODE, LEGACY_CLI_EXE, PRO_CLI_EXE
     global GARMENT_PRINTER_NAME, GARMENT_PRINTER_NAMES, GARMENT_ENABLED, GARMENT_MODE
+    global GARMENT_DISPATCH, GARMENT_PRINT_MODE
     global WORK_ORDER_PRINTER_NAME, WORK_ORDER_ENABLED
     global GTX_CLI, AUTO_CENTER, POSITION, SIZE, MAGNIFICATION, WHITE_AS
     global COPIES, MACHINE_MODE, RESOLUTION, PLATEN_SIZE, INK
@@ -463,6 +476,12 @@ def reload():
     GARMENT_MODE = _ini.get(
         "printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="cli")
     )
+    GARMENT_DISPATCH = _ini.get("printer", "garment_dispatch", fallback="round_robin").strip().lower()
+    if GARMENT_DISPATCH not in ("round_robin", "single"):
+        GARMENT_DISPATCH = "round_robin"
+    GARMENT_PRINT_MODE = _ini.get("printer", "garment_print_mode", fallback="manual").strip().lower()
+    if GARMENT_PRINT_MODE not in ("manual", "auto"):
+        GARMENT_PRINT_MODE = "manual"
     WORK_ORDER_PRINTER_NAME = _ini.get("printer", "work_order_name", fallback="").strip()
     WORK_ORDER_ENABLED = _ini.getboolean("printer", "work_order_enabled", fallback=False)
     PRINTER_NAMES = GARMENT_PRINTER_NAMES
@@ -501,7 +520,7 @@ def reload():
     API_KEY = _ini.get("api", "api_key", fallback="")
     API_BASE_URL = _ini.get("api", "base_url", fallback="https://store.dpl.shop")
     API_POLL_INTERVAL = _ini.getint("api", "poll_interval", fallback=5)
-    DEVICE_STATUS_ENABLED = _ini.getboolean("device", "status_enabled", fallback=True)
+    DEVICE_STATUS_ENABLED = _ini.getboolean("device", "status_enabled", fallback=False)
     DEVICE_STATUS_INTERVAL = _ini.getint("device", "status_interval", fallback=5)
     DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or INCOMING_DIR
 
