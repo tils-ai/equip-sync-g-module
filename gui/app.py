@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 WINDOW_TITLE = "가먼트 프린터 매니저"
 WINDOW_SIZE = (920, 680)
-DEVICE_LABEL = "👕 가먼트 프린터"
+DEVICE_LABEL = "가먼트 프린터"
 
 
 def _open_folder(path: str) -> None:
