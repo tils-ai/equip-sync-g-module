@@ -33,8 +33,8 @@ class StatusCards(ctk.CTkFrame):
         super().__init__(parent, fg_color="transparent")
         self._on_error_click = on_error_click
 
-        # 숫자 카드는 한 자리수라 좁게 고정, 장비 카드만 텍스트라 넓게. stretch 안 함.
-        _MINW = {"pending": 76, "processing": 76, "done": 76, "error": 76, "device": 132}
+        # 숫자 카드는 좁게 고정(좌우 여백 확보), 장비 카드만 텍스트라 넓게.
+        _MINW = {"pending": 88, "processing": 88, "done": 88, "error": 88, "device": 150}
 
         self._values: dict[str, ctk.CTkLabel] = {}
         self._frames: dict[str, ctk.CTkFrame] = {}
@@ -50,7 +50,7 @@ class StatusCards(ctk.CTkFrame):
                 border_width=theme.BORDER_W,
                 border_color=theme.BORDER,
             )
-            card.grid(row=0, column=i, padx=theme.SP_1, pady=0, sticky="ns")
+            card.grid(row=0, column=i, padx=theme.SP_1, pady=0, sticky="nsew")
             self._frames[key] = card
 
             ctk.CTkLabel(
@@ -58,7 +58,7 @@ class StatusCards(ctk.CTkFrame):
                 text=label,
                 font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION),
                 text_color=theme.TEXT_MUTED,
-            ).pack(pady=(theme.SP_1, 0))
+            ).pack(padx=theme.SP_3, pady=(theme.SP_2, 0))
 
             # 장비 카드는 텍스트 상태라 숫자 카드보다 작은 폰트, 기본 "-"
             is_device = key == "device"
@@ -72,7 +72,7 @@ class StatusCards(ctk.CTkFrame):
                 ),
                 text_color=theme.TEXT_MUTED if is_device else theme.TEXT,
             )
-            value.pack(pady=(0, theme.SP_1))
+            value.pack(padx=theme.SP_3, pady=(0, theme.SP_2))
             self._values[key] = value
 
             if key == "error" and on_error_click is not None:

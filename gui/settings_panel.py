@@ -124,7 +124,7 @@ class SettingsPanel(ctk.CTkFrame):
         save_row.pack(fill="x", padx=12, pady=(0, 12))
         ctk.CTkButton(
             save_row,
-            text="설정 저장 (즉시 적용)",
+            text="설정 저장",
             height=theme.TOUCH_MIN - 8,
             font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold"),
             fg_color=theme.ACCENT,

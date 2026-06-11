@@ -157,11 +157,13 @@ class DesignCard(ctk.CTkFrame):
         self._btns.grid(row=4, column=0, padx=theme.SP_2, pady=theme.SP_1, sticky="ew")
         self._btns.grid_columnconfigure((0, 1), weight=1, uniform="ink")
 
-        _bfont = ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold")
+        # width=10 으로 CTkButton 기본 폭(140)을 죽여 카드가 양옆으로 밀리지 않게 — 칸 폭에 맞춰 채움.
+        _bfont = ctk.CTkFont(family=_font_family(), size=13, weight="bold")
         self._btn_white = ctk.CTkButton(
             self._btns,
             text="흰옷 출력",
-            height=theme.TOUCH_LG,
+            width=10,
+            height=44,
             corner_radius=theme.CORNER_SM,
             command=lambda: self._click(INK_COLOR),
             font=_bfont,
@@ -173,7 +175,8 @@ class DesignCard(ctk.CTkFrame):
         self._btn_color = ctk.CTkButton(
             self._btns,
             text="컬러옷 출력",
-            height=theme.TOUCH_LG,
+            width=10,
+            height=44,
             corner_radius=theme.CORNER_SM,
             command=lambda: self._click(INK_WHITE_COLOR),
             font=_bfont,
@@ -292,7 +295,9 @@ class DownloadGrid(ctk.CTkFrame):
             bar,
             values=[_FILTER_LABELS[f] for f in _FILTERS],
             command=self._on_tab_changed,
-            height=36,
+            width=264,            # 3분할 → 칸당 ~88px, 라벨 좌우 여백 확보
+            height=38,
+            dynamic_resizing=False,  # 콘텐츠에 딱 맞게 줄지 않도록
             font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold"),
             selected_color=theme.ACCENT,
             selected_hover_color=theme.ACCENT_HOVER,
