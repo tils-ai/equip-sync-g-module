@@ -41,8 +41,8 @@ def _open_in_editor(path: Path) -> None:
 
 
 class SettingsPanel(ctk.CTkFrame):
-    WIDTH = 520
-    WRAP = 460
+    WIDTH = 640
+    WRAP = 560
     ANIM_MS = 220
     ANIM_STEPS = 12
 
@@ -124,8 +124,12 @@ class SettingsPanel(ctk.CTkFrame):
         save_row.pack(fill="x", padx=12, pady=(0, 12))
         ctk.CTkButton(
             save_row,
-            text="설정 저장 (재시작 필요)",
-            font=ctk.CTkFont(family=_font_family(), size=12, weight="bold"),
+            text="설정 저장 (즉시 적용)",
+            height=theme.TOUCH_MIN - 8,
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold"),
+            fg_color=theme.ACCENT,
+            hover_color=theme.ACCENT_HOVER,
+            text_color=theme.TEXT_ON_ACCENT,
             command=self._save_all,
         ).pack(fill="x")
 
@@ -166,7 +170,13 @@ class SettingsPanel(ctk.CTkFrame):
         ctk.CTkLabel(parent, text=label, font=ctk.CTkFont(family=_font_family(), size=11)).grid(
             row=row, column=0, sticky="w", pady=2
         )
-        combo = ctk.CTkComboBox(parent, values=values, font=ctk.CTkFont(family=_font_family(), size=11))
+        # font=선택값 표시 / dropdown_font=펼친 목록 — 둘 다 지정해야 한글이 기본폰트로 안 깨짐.
+        combo = ctk.CTkComboBox(
+            parent,
+            values=values,
+            font=ctk.CTkFont(family=_font_family(), size=11),
+            dropdown_font=ctk.CTkFont(family=_font_family(), size=11),
+        )
         combo.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=2)
         combo.set(current)
         return combo
@@ -285,6 +295,7 @@ class SettingsPanel(ctk.CTkFrame):
         )
         self._garment_enabled = ctk.CTkSwitch(
             parent, text="가먼트 자동 출력", onvalue=True, offvalue=False,
+            font=ctk.CTkFont(family=_font_family(), size=12),
         )
         if config.GARMENT_ENABLED:
             self._garment_enabled.select()
@@ -300,6 +311,7 @@ class SettingsPanel(ctk.CTkFrame):
         )
         self._work_order_enabled = ctk.CTkSwitch(
             parent, text="지시서 자동 출력", onvalue=True, offvalue=False,
+            font=ctk.CTkFont(family=_font_family(), size=12),
         )
         if config.WORK_ORDER_ENABLED:
             self._work_order_enabled.select()
@@ -343,7 +355,8 @@ class SettingsPanel(ctk.CTkFrame):
             row_frame,
             values=["선택..."],
             width=240 if hide_entry else 120,
-            font=ctk.CTkFont(family=_font_family(), size=10),
+            font=ctk.CTkFont(family=_font_family(), size=11),
+            dropdown_font=ctk.CTkFont(family=_font_family(), size=11),
             command=on_pick,
         )
         menu.set("선택...")

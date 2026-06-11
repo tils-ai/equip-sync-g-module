@@ -74,6 +74,7 @@ class Header(ctk.CTkFrame):
             width=96,
             height=theme.TOUCH_MIN - 8,
             font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION),
+            dropdown_font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION),
             fg_color=theme.NEUTRAL_BTN,
             button_color=theme.NEUTRAL_BTN,
             button_hover_color=theme.NEUTRAL_HOVER,
