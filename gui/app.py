@@ -228,11 +228,12 @@ class WatcherApp(ctk.CTk):
             self._agent.on_done = lambda fn: self._on_agent_done(fn)
             self._agent.on_error = lambda fn: self._on_agent_error(fn)
             self._agent.on_downloaded = lambda fn: self._on_agent_downloaded(fn)
-            # 출력 대기 그리드 wiring — 콜백은 백그라운드 스레드에서 오므로 after(0) 로 메인 마샬링
+            # 출력 큐 그리드 wiring — 콜백은 백그라운드 스레드에서 오므로 after(0) 로 메인 마샬링
             self._agent.on_ready = lambda it: self.after(0, lambda: self.download_grid.add_item(it))
             self._agent.on_printing = lambda iid, pr: self.after(0, lambda: self.download_grid.set_printing(iid, pr))
+            self._agent.on_item_done = lambda iid: self.after(0, lambda: self.download_grid.set_done(iid))
+            self._agent.on_item_failed = lambda iid, rsn: self.after(0, lambda: self.download_grid.set_failed(iid, rsn))
             self._agent.on_item_removed = lambda iid: self.after(0, lambda: self.download_grid.remove_item(iid))
-            self._agent.on_item_failed = lambda iid: self.after(0, lambda: self.download_grid.set_failed(iid))
             self._agent.start()
             self._agent_running = True
             if config.API_KEY:
