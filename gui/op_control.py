@@ -1,4 +1,9 @@
-"""OpControlBox — Agent + Watcher 운영 컨트롤 + 마지막 활동 (spec §5)."""
+"""OpControlBox — Agent + Watcher 운영 컨트롤 (상태 칩 + 버튼 위계).
+
+상단 스트립에서 현황 카드와 한 줄로 나란히. 상태는 점 단독이 아니라 옅은 tint 칩
+(실행 중=SUCCESS_SOFT, 정지=IDLE_SOFT)으로 글랜서블하게. 시작=주 액션(ACCENT),
+정지/폴더=보조(NEUTRAL_BTN) 로 위계 분리.
+"""
 
 from __future__ import annotations
 
@@ -12,19 +17,33 @@ from fonts import family as _font_family
 from . import theme
 
 
-def relative_time(ts: Optional[float]) -> str:
-    if ts is None:
-        return "-"
-    diff = time.time() - ts
-    if diff < 10:
-        return "방금"
-    if diff < 60:
-        return f"{int(diff)}초 전"
-    if diff < 3600:
-        return f"{int(diff / 60)}분 전"
-    if diff < 86400:
-        return f"{int(diff / 3600)}시간 전"
-    return f"{int(diff / 86400)}일 전"
+class _StatusChip(ctk.CTkFrame):
+    """[● 라벨: 상태] 옅은 tint 칩."""
+
+    def __init__(self, parent, prefix: str) -> None:
+        super().__init__(parent, corner_radius=theme.CORNER_SM, fg_color=theme.IDLE_SOFT)
+        self._prefix = prefix
+        self.grid_columnconfigure(1, weight=1)
+        self._dot = ctk.CTkLabel(
+            self,
+            text="●",
+            font=ctk.CTkFont(family=_font_family(), size=12),
+            text_color=theme.IDLE,
+        )
+        self._dot.grid(row=0, column=0, padx=(theme.SP_2, theme.SP_1), pady=theme.SP_1)
+        self._text = ctk.CTkLabel(
+            self,
+            text=f"{prefix}: -",
+            anchor="w",
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY),
+            text_color=theme.TEXT,
+        )
+        self._text.grid(row=0, column=1, sticky="ew", padx=(0, theme.SP_2), pady=theme.SP_1)
+
+    def update(self, *, running: bool, detail: str) -> None:
+        self.configure(fg_color=theme.SUCCESS_SOFT if running else theme.IDLE_SOFT)
+        self._dot.configure(text_color=theme.SUCCESS if running else theme.IDLE)
+        self._text.configure(text=f"{self._prefix}: {detail}")
 
 
 class OpControlBox(ctk.CTkFrame):
@@ -36,88 +55,71 @@ class OpControlBox(ctk.CTkFrame):
         on_toggle_watcher: Callable[[], None],
         on_open_folder: Callable[[], None],
     ) -> None:
-        super().__init__(parent, corner_radius=theme.CORNER, fg_color=theme.SURFACE)
-        # 컴팩트 2줄: [● Agent: detail] [버튼] / [● Watcher: detail] [버튼][폴더]
-        # 상단 스트립에서 현황 카드와 한 줄로 나란히 두기 위한 고정 폭 레이아웃.
-        self.grid_columnconfigure(1, weight=1)
+        super().__init__(parent, corner_radius=theme.CORNER_MD, fg_color=theme.SURFACE,
+                         border_width=theme.BORDER_W, border_color=theme.BORDER)
+        self.grid_columnconfigure(0, weight=1)
+
+        _BTN_H = 40  # 보조 컨트롤 — 주 액션(출력 56)보다 작게, 컴팩트 유지
 
         # Agent row
-        self.agent_dot = ctk.CTkLabel(
-            self,
-            text="●",
-            font=ctk.CTkFont(family=_font_family(), size=13),
-            text_color=theme.NEUTRAL,
-        )
-        self.agent_dot.grid(row=0, column=0, padx=(12, 6), pady=(8, 3), sticky="w")
-
-        self.agent_text = ctk.CTkLabel(
-            self,
-            text="Agent: -",
-            anchor="w",
-            font=ctk.CTkFont(family=_font_family(), size=12),
-            text_color=theme.TEXT,
-        )
-        self.agent_text.grid(row=0, column=1, sticky="ew", pady=(8, 3))
-
+        self.agent_chip = _StatusChip(self, "Agent")
+        self.agent_chip.grid(row=0, column=0, sticky="ew", padx=(theme.SP_3, theme.SP_2), pady=(theme.SP_2, theme.SP_1))
         self.agent_btn = ctk.CTkButton(
             self,
             text="시작",
-            width=64,
-            height=26,
-            font=ctk.CTkFont(family=_font_family(), size=11),
+            width=72,
+            height=_BTN_H,
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold"),
+            fg_color=theme.ACCENT,
+            hover_color=theme.ACCENT_HOVER,
             command=on_toggle_agent,
             state="disabled",
         )
-        self.agent_btn.grid(row=0, column=2, columnspan=2, padx=(8, 12), pady=(8, 3), sticky="e")
+        self.agent_btn.grid(row=0, column=1, columnspan=2, padx=(0, theme.SP_3), pady=(theme.SP_2, theme.SP_1), sticky="e")
 
         # Watcher row
-        self.watcher_dot = ctk.CTkLabel(
-            self,
-            text="●",
-            font=ctk.CTkFont(family=_font_family(), size=13),
-            text_color=theme.NEUTRAL,
-        )
-        self.watcher_dot.grid(row=1, column=0, padx=(12, 6), pady=(0, 8), sticky="w")
-
-        self.watcher_text = ctk.CTkLabel(
-            self,
-            text="Watcher: 정지됨",
-            anchor="w",
-            font=ctk.CTkFont(family=_font_family(), size=12),
-            text_color=theme.TEXT,
-        )
-        self.watcher_text.grid(row=1, column=1, sticky="ew", pady=(0, 8))
-
+        self.watcher_chip = _StatusChip(self, "Watcher")
+        self.watcher_chip.grid(row=1, column=0, sticky="ew", padx=(theme.SP_3, theme.SP_2), pady=(theme.SP_1, theme.SP_2))
         self.watcher_btn = ctk.CTkButton(
             self,
             text="정지",
-            width=64,
-            height=26,
-            font=ctk.CTkFont(family=_font_family(), size=11),
+            width=72,
+            height=_BTN_H,
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY),
+            fg_color=theme.NEUTRAL_BTN,
+            hover_color=theme.NEUTRAL_HOVER,
+            text_color=theme.TEXT,
             command=on_toggle_watcher,
         )
-        self.watcher_btn.grid(row=1, column=2, padx=(8, 4), pady=(0, 8), sticky="e")
+        self.watcher_btn.grid(row=1, column=1, padx=(0, theme.SP_1), pady=(theme.SP_1, theme.SP_2), sticky="e")
 
         ctk.CTkButton(
             self,
             text="폴더",
-            width=56,
-            height=26,
-            font=ctk.CTkFont(family=_font_family(), size=11),
+            width=64,
+            height=_BTN_H,
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY),
+            fg_color=theme.NEUTRAL_BTN,
+            hover_color=theme.NEUTRAL_HOVER,
+            text_color=theme.TEXT,
             command=on_open_folder,
-        ).grid(row=1, column=3, padx=(0, 12), pady=(0, 8), sticky="e")
+        ).grid(row=1, column=2, padx=(0, theme.SP_3), pady=(theme.SP_1, theme.SP_2), sticky="e")
 
         self._last_ts: Optional[float] = None
         self._last_summary: str = ""
 
     def set_agent(self, *, running: bool, detail: str, enabled: bool = False) -> None:
-        self.agent_dot.configure(text_color=theme.SUCCESS if running else theme.NEUTRAL)
-        self.agent_text.configure(text=f"Agent: {detail}")
-        self.agent_btn.configure(text="정지" if running else "시작", state="normal" if enabled else "disabled")
+        self.agent_chip.update(running=running, detail=detail)
+        self.agent_btn.configure(
+            text="정지" if running else "시작",
+            state="normal" if enabled else "disabled",
+            fg_color=theme.NEUTRAL_BTN if running else theme.ACCENT,
+            hover_color=theme.NEUTRAL_HOVER if running else theme.ACCENT_HOVER,
+            text_color=theme.TEXT if running else theme.TEXT_ON_ACCENT,
+        )
 
     def set_watcher(self, *, running: bool, detail: str) -> None:
-        self.watcher_dot.configure(text_color=theme.SUCCESS if running else theme.NEUTRAL)
-        self.watcher_text.configure(text=f"Watcher: {detail}")
+        self.watcher_chip.update(running=running, detail=detail)
         self.watcher_btn.configure(text="정지" if running else "시작")
 
     def push_activity(self, summary: str) -> None:
