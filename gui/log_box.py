@@ -33,8 +33,8 @@ class LogBox(ctk.CTkTextbox):
             state="disabled",
             fg_color=theme.LOG_BG,
             text_color=theme.LOG_TEXT,
-            font=ctk.CTkFont(family=_font_family(), size=11),
-            corner_radius=theme.CORNER,
+            font=ctk.CTkFont(family=_font_family(), size=13),
+            corner_radius=theme.CORNER_MD,
             wrap="none",
         )
 

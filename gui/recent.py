@@ -34,10 +34,10 @@ class RecentList(ctk.CTkFrame):
             self,
             text="최근 처리",
             anchor="w",
-            font=ctk.CTkFont(family=_font_family(), size=11, weight="bold"),
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION, weight="bold"),
             text_color=theme.TEXT_MUTED,
         )
-        self._title.grid(row=0, column=0, sticky="ew", padx=12, pady=(6, 2))
+        self._title.grid(row=0, column=0, sticky="ew", padx=theme.SP_3, pady=(theme.SP_2, theme.SP_1))
 
         self._labels: list[ctk.CTkLabel] = []
         for i in range(max_items):
@@ -45,10 +45,10 @@ class RecentList(ctk.CTkFrame):
                 self,
                 text="",
                 anchor="w",
-                font=ctk.CTkFont(family=_font_family(), size=11),
+                font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY),
                 text_color=theme.TEXT,
             )
-            lab.grid(row=i + 1, column=0, sticky="ew", padx=12, pady=1)
+            lab.grid(row=i + 1, column=0, sticky="ew", padx=theme.SP_3, pady=theme.SP_1)
             self._labels.append(lab)
 
     def push(self, item: ActivityItem) -> None:

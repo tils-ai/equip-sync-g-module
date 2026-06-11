@@ -30,19 +30,25 @@ logger = logging.getLogger(__name__)
 
 _THUMB_PX = 158
 _CARD_W = 186            # 카드 고정 폭 — 폭 기반 열 수 계산의 단위
-_CARD_PAD = 6            # 카드 좌우 패딩(각각)
+_CARD_PAD = 8            # 카드 좌우 패딩(각각)
 _CARD_TOTAL = _CARD_W + _CARD_PAD * 2
 
 _FILTERS = ["ready", "failed", "done"]
 _FILTER_LABELS = {"ready": "대기", "failed": "실패", "done": "완료"}
 _LABEL_TO_FILTER = {v: k for k, v in _FILTER_LABELS.items()}
 
-# 상태 강조색 (색 단독에 의존하지 않도록 텍스트/아이콘과 함께 사용)
+# 상태 강조 — 테두리색(SOLID) + 배경 tint(SOFT) + 텍스트/아이콘 3중.
 _STATUS_BORDER = {
-    "ready": theme.NEUTRAL,
-    "printing": theme.WARNING,
+    "ready": theme.BORDER,
+    "printing": theme.PROGRESS,
     "failed": theme.DANGER,
     "done": theme.SUCCESS,
+}
+_STATUS_BG = {
+    "ready": theme.SURFACE,
+    "printing": theme.PROGRESS_SOFT,
+    "failed": theme.DANGER_SOFT,
+    "done": theme.SUCCESS_SOFT,
 }
 
 
@@ -72,10 +78,10 @@ class DesignCard(ctk.CTkFrame):
         super().__init__(
             parent,
             fg_color=theme.SURFACE,
-            corner_radius=theme.CORNER,
+            corner_radius=theme.CORNER_MD,
             width=_CARD_W,
             border_width=2,
-            border_color=theme.NEUTRAL,
+            border_color=theme.BORDER,
         )
         self.item_id = item.id
         self.status = getattr(item, "status", "ready") or "ready"
@@ -97,11 +103,11 @@ class DesignCard(ctk.CTkFrame):
             width=_THUMB_PX,
             height=_THUMB_PX,
             fg_color=theme.SURFACE_2,
-            corner_radius=theme.CORNER,
+            corner_radius=theme.CORNER_MD,
             font=ctk.CTkFont(family=_font_family(), size=30),
             text_color=theme.TEXT_MUTED,
         )
-        self._thumb.grid(row=0, column=0, padx=8, pady=(8, 4), sticky="ew")
+        self._thumb.grid(row=0, column=0, padx=theme.SP_2, pady=(theme.SP_2, theme.SP_1), sticky="ew")
 
         # 주문번호 + 순번
         seq = f"  #{idx}/{total}" if total and total > 1 else ""
@@ -109,9 +115,9 @@ class DesignCard(ctk.CTkFrame):
             self,
             text=f"{order_number}{seq}",
             anchor="w",
-            font=ctk.CTkFont(family=_font_family(), size=13, weight="bold"),
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY_LG, weight="bold"),
             text_color=theme.TEXT,
-        ).grid(row=1, column=0, padx=8, sticky="ew")
+        ).grid(row=1, column=0, padx=theme.SP_2, sticky="ew")
 
         # 상품명 / 옵션
         sub = product + (f" · {option}" if option else "")
@@ -121,9 +127,9 @@ class DesignCard(ctk.CTkFrame):
             anchor="w",
             wraplength=_THUMB_PX,
             justify="left",
-            font=ctk.CTkFont(family=_font_family(), size=11),
-            text_color=theme.TEXT_MUTED,
-        ).grid(row=2, column=0, padx=8, sticky="ew")
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION),
+            text_color=theme.TEXT_SUB,
+        ).grid(row=2, column=0, padx=theme.SP_2, sticky="ew")
 
         # 배지 — 지시서 포함 / 아동 플레이트 / 수량
         badges = []
@@ -138,20 +144,23 @@ class DesignCard(ctk.CTkFrame):
             self,
             text="   ".join(badges) if badges else " ",
             anchor="w",
-            font=ctk.CTkFont(family=_font_family(), size=10),
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION),
             text_color=theme.ACCENT,
-        ).grid(row=3, column=0, padx=8, pady=(2, 0), sticky="ew")
+        ).grid(row=3, column=0, padx=theme.SP_2, pady=(theme.SP_1, 0), sticky="ew")
 
-        # 액션 버튼 — 산업 현장 시인성 위해 높이 40
+        # 액션 버튼 — 핵심 액션이라 큰 터치 타깃(56)
         self._btn = ctk.CTkButton(
             self,
             text="출력",
-            height=40,
+            height=theme.TOUCH_LG,
+            corner_radius=theme.CORNER_SM,
             command=self._handle_click,
-            font=ctk.CTkFont(family=_font_family(), size=14, weight="bold"),
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY_LG, weight="bold"),
             fg_color=theme.ACCENT,
+            hover_color=theme.ACCENT_HOVER,
+            text_color=theme.TEXT_ON_ACCENT,
         )
-        self._btn.grid(row=4, column=0, padx=8, pady=(4, 4), sticky="ew")
+        self._btn.grid(row=4, column=0, padx=theme.SP_2, pady=theme.SP_1, sticky="ew")
 
         # 상태 라벨 (전송 중/실패 사유/완료)
         self._status_lbl = ctk.CTkLabel(
@@ -159,10 +168,10 @@ class DesignCard(ctk.CTkFrame):
             text="",
             anchor="center",
             wraplength=_THUMB_PX,
-            font=ctk.CTkFont(family=_font_family(), size=10),
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION),
             text_color=theme.TEXT_MUTED,
         )
-        self._status_lbl.grid(row=5, column=0, padx=8, pady=(0, 8), sticky="ew")
+        self._status_lbl.grid(row=5, column=0, padx=theme.SP_2, pady=(0, theme.SP_2), sticky="ew")
 
         self._apply_status(self.status, getattr(item, "error_reason", "") or "")
         self._load_thumb_async(item.download_path)
@@ -199,18 +208,23 @@ class DesignCard(ctk.CTkFrame):
     # ── 상태 전환 ──
     def _apply_status(self, status: str, reason: str = "") -> None:
         self.status = status
-        self.configure(border_color=_STATUS_BORDER.get(status, theme.NEUTRAL))
+        self.configure(
+            border_color=_STATUS_BORDER.get(status, theme.BORDER),
+            fg_color=_STATUS_BG.get(status, theme.SURFACE),
+        )
         if status == "ready":
             self._btn.grid()
-            self._btn.configure(state="normal", text="출력", fg_color=theme.ACCENT)
+            self._btn.configure(state="normal", text="출력", fg_color=theme.ACCENT,
+                                hover_color=theme.ACCENT_HOVER, text_color=theme.TEXT_ON_ACCENT)
             self._status_lbl.configure(text="", text_color=theme.TEXT_MUTED)
         elif status == "printing":
             self._btn.grid()
-            self._btn.configure(state="disabled", text="전송 중…", fg_color=theme.WARNING)
-            self._status_lbl.configure(text=reason or "장비로 전송 중", text_color=theme.WARNING)
+            self._btn.configure(state="disabled", text="⟳ 전송 중…", fg_color=theme.PROGRESS)
+            self._status_lbl.configure(text=reason or "장비로 전송 중", text_color=theme.PROGRESS)
         elif status == "failed":
             self._btn.grid()
-            self._btn.configure(state="normal", text="재시도", fg_color=theme.DANGER)
+            self._btn.configure(state="normal", text="재시도", fg_color=theme.DANGER,
+                                hover_color=theme.DANGER, text_color=theme.TEXT_ON_ACCENT)
             self._status_lbl.configure(text=f"실패 — {reason}" if reason else "전송 실패", text_color=theme.DANGER)
         elif status == "done":
             self._btn.grid_remove()
@@ -250,7 +264,10 @@ class DownloadGrid(ctk.CTkFrame):
             bar,
             values=[_FILTER_LABELS[f] for f in _FILTERS],
             command=self._on_tab_changed,
-            font=ctk.CTkFont(family=_font_family(), size=12, weight="bold"),
+            height=36,
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold"),
+            selected_color=theme.ACCENT,
+            selected_hover_color=theme.ACCENT_HOVER,
         )
         self._seg.set(_FILTER_LABELS["ready"])
         self._seg.grid(row=0, column=0, sticky="w")
@@ -259,10 +276,10 @@ class DownloadGrid(ctk.CTkFrame):
             bar,
             text="",
             anchor="e",
-            font=ctk.CTkFont(family=_font_family(), size=11),
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION),
             text_color=theme.TEXT_MUTED,
         )
-        self._summary.grid(row=0, column=1, sticky="e", padx=(8, 4))
+        self._summary.grid(row=0, column=1, sticky="e", padx=(theme.SP_2, theme.SP_1))
 
         self._scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self._scroll.grid(row=2, column=0, sticky="nsew", padx=4, pady=(4, 4))
@@ -271,7 +288,7 @@ class DownloadGrid(ctk.CTkFrame):
         self._empty = ctk.CTkLabel(
             self._scroll,
             text="",
-            font=ctk.CTkFont(family=_font_family(), size=12),
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY),
             text_color=theme.TEXT_MUTED,
         )
         self._reflow()
