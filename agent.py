@@ -226,6 +226,20 @@ class AgentWorker:
         with self._ready_lock:
             return list(self._ready.values())
 
+    def status_counts(self) -> dict[str, int]:
+        """출력 큐를 상태별로 집계 — 현황 카드/그리드 탭과 동일 기준.
+
+        전송 큐에 투입된(=전송 중) ready 항목은 printing 으로 분류.
+        """
+        with self._ready_lock:
+            c = {"ready": 0, "printing": 0, "failed": 0, "done": 0}
+            for it in self._ready.values():
+                if it.status == "ready" and it.id in self._enqueued:
+                    c["printing"] += 1
+                elif it.status in c:
+                    c[it.status] += 1
+            return c
+
     def start(self):
         """Agent 시작 — API 키 없으면 Device Auth 자동 트리거."""
         if self._running:

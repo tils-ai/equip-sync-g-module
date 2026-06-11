@@ -99,11 +99,12 @@ class WatcherApp(ctk.CTk):
         # ── 상단 스트립: 현황 카드(좌) + 운영 컨트롤(우) 한 줄 ──
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.grid(row=1, column=0, sticky="ew", padx=12, pady=(8, 4))
-        top.grid_columnconfigure(0, weight=1)               # 현황 — 남는 폭 차지
-        top.grid_columnconfigure(1, weight=0, minsize=300)  # 컨트롤 — 고정 폭
+        top.grid_columnconfigure(0, weight=0)               # 현황 — 자연 폭(고정)
+        top.grid_columnconfigure(1, weight=1)               # 스페이서 — 남는 폭 흡수
+        top.grid_columnconfigure(2, weight=0, minsize=300)  # 컨트롤 — 우측 고정 폭
 
         self.cards = StatusCards(top, on_error_click=lambda: _open_folder(config.ERROR_DIR))
-        self.cards.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        self.cards.grid(row=0, column=0, sticky="nw")
 
         self.control = OpControlBox(
             top,
@@ -111,7 +112,7 @@ class WatcherApp(ctk.CTk):
             on_toggle_watcher=self._toggle_watcher,
             on_open_folder=lambda: _open_folder(config.INCOMING_DIR),
         )
-        self.control.grid(row=0, column=1, sticky="nsew")
+        self.control.grid(row=0, column=2, sticky="nse")
 
         # ── 메인: 출력 대기 그리드 ──
         self.download_grid = DownloadGrid(self, on_print=self._on_print_clicked)
@@ -341,19 +342,24 @@ class WatcherApp(ctk.CTk):
 
     # ── tick / log ──────────────────────────────────
     def _tick(self) -> None:
-        # Agent 모드 우선 — 실제로 일하는 모듈이 노출하는 상태를 카드에 반영.
-        # 둘 다 OFF 면 INCOMING 폴더의 PDF 수를 보여줘 운영자가 큐를 가늠.
+        # 현황 카드 = 출력 큐 상태 버킷(그리드 탭과 동일 기준): 대기/처리중/완료/실패.
+        # 다운로드 진행 중이면 처리중에 합산. Agent OFF 면 INCOMING PDF 수만 가늠.
         if self._agent_running and self._agent is not None:
-            pending = self._agent.pending_count
-            processing = 1 if self._agent.is_processing else 0
+            counts = self._agent.status_counts()
+            pending = counts["ready"]
+            processing = counts["printing"] + (1 if self._agent.is_processing else 0)
+            done = counts["done"]
+            error = counts["failed"]
         else:
             pending = _count_pdfs(config.INCOMING_DIR)
             processing = 0
+            done = self.stats.done
+            error = self.stats.error
         self.cards.set_counts(
             pending=pending,
             processing=processing,
-            done=self.stats.done,
-            error=self.stats.error,
+            done=done,
+            error=error,
         )
         if self._watcher_running:
             self.control.set_watcher(running=True, detail=f"감시 중 · {os.path.basename(config.INCOMING_DIR) or 'incoming'}/")
