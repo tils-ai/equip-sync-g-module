@@ -33,6 +33,10 @@ _CARD_W = 186            # 카드 고정 폭 — 폭 기반 열 수 계산의 �
 _CARD_PAD = 8            # 카드 좌우 패딩(각각)
 _CARD_TOTAL = _CARD_W + _CARD_PAD * 2
 
+# 잉크 모드 — 흰옷=Color only(0), 컬러옷=White+Color(2). config.INK 의 의미와 동일.
+INK_COLOR = 0
+INK_WHITE_COLOR = 2
+
 _FILTERS = ["ready", "failed", "done"]
 _FILTER_LABELS = {"ready": "대기", "failed": "실패", "done": "완료"}
 _LABEL_TO_FILTER = {v: k for k, v in _FILTER_LABELS.items()}
@@ -148,19 +152,36 @@ class DesignCard(ctk.CTkFrame):
             text_color=theme.ACCENT,
         ).grid(row=3, column=0, padx=theme.SP_2, pady=(theme.SP_1, 0), sticky="ew")
 
-        # 액션 버튼 — 핵심 액션이라 큰 터치 타깃(56)
-        self._btn = ctk.CTkButton(
-            self,
-            text="출력",
+        # 액션 버튼 2개 — 흰옷(Color) / 컬러옷(White+Color). 옷 색에 따라 즉석 선택.
+        self._btns = ctk.CTkFrame(self, fg_color="transparent")
+        self._btns.grid(row=4, column=0, padx=theme.SP_2, pady=theme.SP_1, sticky="ew")
+        self._btns.grid_columnconfigure((0, 1), weight=1, uniform="ink")
+
+        _bfont = ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold")
+        self._btn_white = ctk.CTkButton(
+            self._btns,
+            text="흰옷\nColor",
             height=theme.TOUCH_LG,
             corner_radius=theme.CORNER_SM,
-            command=self._handle_click,
-            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY_LG, weight="bold"),
+            command=lambda: self._click(INK_COLOR),
+            font=_bfont,
             fg_color=theme.ACCENT,
             hover_color=theme.ACCENT_HOVER,
             text_color=theme.TEXT_ON_ACCENT,
         )
-        self._btn.grid(row=4, column=0, padx=theme.SP_2, pady=theme.SP_1, sticky="ew")
+        self._btn_white.grid(row=0, column=0, padx=(0, theme.SP_1), sticky="ew")
+        self._btn_color = ctk.CTkButton(
+            self._btns,
+            text="컬러옷\nW+Color",
+            height=theme.TOUCH_LG,
+            corner_radius=theme.CORNER_SM,
+            command=lambda: self._click(INK_WHITE_COLOR),
+            font=_bfont,
+            fg_color=theme.ACCENT_ALT,
+            hover_color=theme.ACCENT_ALT_HOVER,
+            text_color=theme.TEXT_ON_ACCENT,
+        )
+        self._btn_color.grid(row=0, column=1, padx=(theme.SP_1, 0), sticky="ew")
 
         # 상태 라벨 (전송 중/실패 사유/완료)
         self._status_lbl = ctk.CTkLabel(
@@ -202,8 +223,12 @@ class DesignCard(ctk.CTkFrame):
         except Exception:
             logger.debug("썸네일 표시 실패", exc_info=True)
 
-    def _handle_click(self) -> None:
-        self._on_print(self.item_id)
+    def _click(self, ink: int) -> None:
+        self._on_print(self.item_id, ink)
+
+    def _set_buttons(self, state: str) -> None:
+        self._btn_white.configure(state=state)
+        self._btn_color.configure(state=state)
 
     # ── 상태 전환 ──
     def _apply_status(self, status: str, reason: str = "") -> None:
@@ -213,23 +238,23 @@ class DesignCard(ctk.CTkFrame):
             fg_color=_STATUS_BG.get(status, theme.SURFACE),
         )
         if status == "ready":
-            self._btn.grid()
-            self._btn.configure(state="normal", text="출력", fg_color=theme.ACCENT,
-                                hover_color=theme.ACCENT_HOVER, text_color=theme.TEXT_ON_ACCENT)
+            self._btns.grid()
+            self._set_buttons("normal")
             self._status_lbl.grid_remove()  # 사유 없음 — 빈 칸 차지 방지
         elif status == "printing":
-            self._btn.grid()
-            self._btn.configure(state="disabled", text="⟳ 전송 중…", fg_color=theme.PROGRESS)
+            self._btns.grid()
+            self._set_buttons("disabled")
             self._status_lbl.grid()
-            self._status_lbl.configure(text=reason or "장비로 전송 중", text_color=theme.PROGRESS)
+            self._status_lbl.configure(text=reason or "⟳ 장비로 전송 중", text_color=theme.PROGRESS)
         elif status == "failed":
-            self._btn.grid()
-            self._btn.configure(state="normal", text="재시도", fg_color=theme.DANGER,
-                                hover_color=theme.DANGER, text_color=theme.TEXT_ON_ACCENT)
+            # 실패 시 두 버튼을 다시 살려 잉크를 골라 재시도.
+            self._btns.grid()
+            self._set_buttons("normal")
             self._status_lbl.grid()
-            self._status_lbl.configure(text=f"실패 — {reason}" if reason else "전송 실패", text_color=theme.DANGER)
+            self._status_lbl.configure(text=f"실패 — {reason} · 잉크 선택 후 재시도" if reason else "전송 실패 · 재시도",
+                                       text_color=theme.DANGER)
         elif status == "done":
-            self._btn.grid_remove()
+            self._btns.grid_remove()
             self._status_lbl.grid()
             self._status_lbl.configure(text="✅ 전송완료", text_color=theme.SUCCESS)
 

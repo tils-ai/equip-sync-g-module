@@ -255,11 +255,11 @@ class WatcherApp(ctk.CTk):
     def _on_agent_downloaded(self, filename: str) -> None:
         self._push_recent(filename, "ok", "다운로드")
 
-    def _on_print_clicked(self, item_id: str) -> None:
-        """출력 대기 카드 [출력] 클릭 → Agent 출력 큐 투입."""
+    def _on_print_clicked(self, item_id: str, ink: int) -> None:
+        """출력 대기 카드 흰옷(Color)/컬러옷(White+Color) 클릭 → Agent 출력 큐 투입."""
         if self._agent is None:
             return
-        if not self._agent.print_ready(item_id):
+        if not self._agent.print_ready(item_id, ink):
             logger.info("출력 투입 무시 — 이미 전송 중이거나 없는 항목: %s", item_id)
 
     def _push_recent(self, filename: str, status: str, detail: str) -> None:

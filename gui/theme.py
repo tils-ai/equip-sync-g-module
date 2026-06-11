@@ -29,6 +29,8 @@ ACCENT_SOFT = ("#E8F0FE", "#1E2A44")   # 정보/진행 틴트 배경
 NEUTRAL_BTN = ("#E7EAF0", "#333845")   # 보조 버튼(폴더/설정) 배경
 NEUTRAL_HOVER = ("#DADFE8", "#3D4350")
 NEUTRAL = ("#C7CCD4", "#5A606C")       # 비활성 점/중립 윤곽 (하위호환 유지)
+ACCENT_ALT = ("#6D4AFF", "#9B82FF")    # 보조 강조(컬러옷 White+Color 출력 버튼)
+ACCENT_ALT_HOVER = ("#5A37E0", "#B29DFF")
 
 # ── 상태: SOLID(전경: 텍스트·점·테두리) + SOFT(배경 tint) ──
 IDLE = ("#6B717C", "#8A909C")          # 대기/미시작 = 중립 회색
