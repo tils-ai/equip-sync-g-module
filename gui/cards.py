@@ -25,14 +25,14 @@ class StatusCards(ctk.CTkFrame):
              ("error", "오류"), ("device", "장비")]
         ):
             card = ctk.CTkFrame(self, corner_radius=theme.CORNER, fg_color=theme.SURFACE)
-            card.grid(row=0, column=i, padx=4, pady=4, sticky="nsew")
+            card.grid(row=0, column=i, padx=3, pady=0, sticky="nsew")
 
             ctk.CTkLabel(
                 card,
                 text=label,
-                font=ctk.CTkFont(family=_font_family(), size=11),
+                font=ctk.CTkFont(family=_font_family(), size=10),
                 text_color=theme.TEXT_MUTED,
-            ).pack(pady=(8, 0))
+            ).pack(pady=(6, 0))
 
             # 장비 카드는 텍스트 상태라 숫자 카드보다 작은 폰트, 기본 "-"
             is_device = key == "device"
@@ -41,12 +41,12 @@ class StatusCards(ctk.CTkFrame):
                 text="-" if is_device else "0",
                 font=ctk.CTkFont(
                     family=_font_family(),
-                    size=14 if is_device else 22,
+                    size=13 if is_device else 18,
                     weight="bold",
                 ),
                 text_color=theme.TEXT_MUTED if is_device else theme.TEXT,
             )
-            value.pack(pady=(0, 8))
+            value.pack(pady=(0, 6))
             self._values[key] = value
 
             if key == "error" and on_error_click is not None:

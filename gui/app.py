@@ -82,11 +82,9 @@ class WatcherApp(ctk.CTk):
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=0)  # header
-        self.grid_rowconfigure(1, weight=0)  # cards
-        self.grid_rowconfigure(2, weight=0)  # control
-        self.grid_rowconfigure(3, weight=3)  # 출력 대기 그리드 (메인)
-        self.grid_rowconfigure(4, weight=0)  # recent
-        self.grid_rowconfigure(5, weight=1)  # log
+        self.grid_rowconfigure(1, weight=0)  # 상단 스트립 (현황 + 컨트롤)
+        self.grid_rowconfigure(2, weight=1)  # 출력 대기 그리드 (메인)
+        self.grid_rowconfigure(3, weight=0)  # 하단 스트립 (최근 처리 + 로그)
 
         self.header = Header(
             self,
@@ -98,25 +96,40 @@ class WatcherApp(ctk.CTk):
         self.header.grid(row=0, column=0, sticky="ew")
         self.header.set_pairing("connected" if config.API_KEY else "unpaired")
 
-        self.cards = StatusCards(self, on_error_click=lambda: _open_folder(config.ERROR_DIR))
-        self.cards.grid(row=1, column=0, sticky="ew", padx=12, pady=(8, 4))
+        # ── 상단 스트립: 현황 카드(좌) + 운영 컨트롤(우) 한 줄 ──
+        top = ctk.CTkFrame(self, fg_color="transparent")
+        top.grid(row=1, column=0, sticky="ew", padx=12, pady=(8, 4))
+        top.grid_columnconfigure(0, weight=1)               # 현황 — 남는 폭 차지
+        top.grid_columnconfigure(1, weight=0, minsize=300)  # 컨트롤 — 고정 폭
+
+        self.cards = StatusCards(top, on_error_click=lambda: _open_folder(config.ERROR_DIR))
+        self.cards.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
         self.control = OpControlBox(
-            self,
+            top,
             on_toggle_agent=self._toggle_agent,
             on_toggle_watcher=self._toggle_watcher,
             on_open_folder=lambda: _open_folder(config.INCOMING_DIR),
         )
-        self.control.grid(row=2, column=0, sticky="ew", padx=12, pady=4)
+        self.control.grid(row=0, column=1, sticky="nsew")
 
+        # ── 메인: 출력 대기 그리드 ──
         self.download_grid = DownloadGrid(self, on_print=self._on_print_clicked)
-        self.download_grid.grid(row=3, column=0, sticky="nsew", padx=12, pady=4)
+        self.download_grid.grid(row=2, column=0, sticky="nsew", padx=12, pady=4)
 
-        self.recent = RecentList(self)
-        self.recent.grid(row=4, column=0, sticky="nsew", padx=12, pady=4)
+        # ── 하단 스트립: 최근 처리(좌) + 로그(우) 한 줄 ──
+        bottom = ctk.CTkFrame(self, fg_color="transparent", height=160)
+        bottom.grid(row=3, column=0, sticky="ew", padx=12, pady=(4, 12))
+        bottom.grid_propagate(False)  # height 고정 — 메인 그리드가 세로를 가져가도록
+        bottom.grid_columnconfigure(0, weight=2)  # 최근 처리
+        bottom.grid_columnconfigure(1, weight=3)  # 로그
+        bottom.grid_rowconfigure(0, weight=1)
 
-        self.log = LogBox(self)
-        self.log.grid(row=5, column=0, sticky="nsew", padx=12, pady=(4, 12))
+        self.recent = RecentList(bottom)
+        self.recent.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+
+        self.log = LogBox(bottom)
+        self.log.grid(row=0, column=1, sticky="nsew")
 
         attach_logging(self._log_queue)
 
