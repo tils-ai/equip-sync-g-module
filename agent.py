@@ -11,6 +11,7 @@ import logging
 import os
 import queue
 import shutil
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -73,16 +74,19 @@ def _is_image(path: str) -> bool:
 
 @dataclass
 class ReadyItem:
-    """다운로드 완료(READY) 큐 1건 — 작업자 출력 대기.
+    """출력 큐 1건 — 다운로드 완료 후 작업자 전송 대상.
 
     do_garment / do_work_order 는 아직 전송하지 않은 sub 를 나타낸다.
-    sub 가 전송완료(SENT)되면 False 로 내려가고, 둘 다 False 면 스토어에서 제거.
+    sub 가 전송완료(SENT)되면 False 로 내려가고, 둘 다 False 면 status="done".
+    status: "ready"(대기) | "failed"(실패, 재시도 가능) | "done"(완료/이력).
     """
 
     job: dict
     download_path: str
     do_garment: bool
     do_work_order: bool
+    status: str = "ready"
+    error_reason: str = ""
 
     @property
     def id(self) -> str:
@@ -116,25 +120,41 @@ def _load_ready_store() -> list[ReadyItem]:
             download_path=r.get("download_path", ""),
             do_garment=bool(r.get("do_garment", False)),
             do_work_order=bool(r.get("do_work_order", False)),
+            status=r.get("status", "ready") or "ready",
+            error_reason=r.get("error_reason", "") or "",
         )
-        if it.id and it.download_path and os.path.exists(it.download_path):
+        if not it.id:
+            continue
+        # done 은 이력이라 원본 파일이 없어도 유지(완료 탭). ready/failed 는 출력 원본이
+        # 있어야 재시도 가능하므로 파일 존재를 확인.
+        if it.status == "done" or (it.download_path and os.path.exists(it.download_path)):
             items.append(it)
         else:
-            logger.warning("ready.json 항목 스킵 (파일 없음): %s", it.id or "(no id)")
+            logger.warning("ready.json 항목 스킵 (출력 원본 없음): %s [%s]", it.id, it.status)
     return items
 
 
+# 완료(done) 이력 보관 상한 — 그 이상은 오래된 것부터 버림(메모리/파일 비대 방지).
+_DONE_KEEP = 30
+
+
 def _save_ready_store(items: list[ReadyItem]) -> None:
-    """ready.json 원자적 저장."""
+    """ready.json 원자적 저장. done 항목은 최근 _DONE_KEEP 개만 보관."""
     path = _ready_store_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        done = [it for it in items if it.status == "done"]
+        if len(done) > _DONE_KEEP:
+            drop = set(id(it) for it in done[: len(done) - _DONE_KEEP])
+            items = [it for it in items if id(it) not in drop]
         data = [
             {
                 "job": it.job,
                 "download_path": it.download_path,
                 "do_garment": it.do_garment,
                 "do_work_order": it.do_work_order,
+                "status": it.status,
+                "error_reason": it.error_reason,
             }
             for it in items
         ]
@@ -160,8 +180,9 @@ class AgentWorker:
         # 작업자 수동 전송 워크플로우 콜백
         self.on_ready: Optional[Callable[[ReadyItem], None]] = None  # READY 적재(그리드 추가)
         self.on_printing: Optional[Callable[[str, str], None]] = None  # (item_id, printer) 전송 시작
-        self.on_item_removed: Optional[Callable[[str], None]] = None  # 전송완료/제거(그리드 제거)
-        self.on_item_failed: Optional[Callable[[str], None]] = None  # 전송 실패(그리드 재시도 표시)
+        self.on_item_done: Optional[Callable[[str], None]] = None  # 전송완료(완료 탭으로 이동)
+        self.on_item_failed: Optional[Callable[[str, str], None]] = None  # (item_id, reason) 실패(실패 탭)
+        self.on_item_removed: Optional[Callable[[str], None]] = None  # 그리드에서 제거(이력 정리 등)
         self.on_done: Optional[Callable[[str], None]] = None
         self.on_error: Optional[Callable[[str], None]] = None
         self.on_auth_expired: Optional[Callable[[], None]] = None
@@ -275,10 +296,14 @@ class AgentWorker:
         with self._ready_lock:
             for it in restored:
                 self._ready[it.id] = it
-        logger.info("READY 복원 — %d건", len(restored))
+        n_ready = sum(1 for it in restored if it.status == "ready")
+        n_failed = sum(1 for it in restored if it.status == "failed")
+        n_done = sum(1 for it in restored if it.status == "done")
+        logger.info("스토어 복원 — 대기 %d · 실패 %d · 완료 %d", n_ready, n_failed, n_done)
         for it in restored:
+            # 카드는 자신의 status 에 맞는 탭에 추가됨(add_item 이 item.status 참조).
             _fire(self.on_ready, it)
-            if config.GARMENT_PRINT_MODE == "auto":
+            if it.status == "ready" and config.GARMENT_PRINT_MODE == "auto":
                 self.print_ready(it.id)
 
     def stop(self):
@@ -418,11 +443,16 @@ class AgentWorker:
         반환: 투입 성공 여부(이미 큐/처리 중이거나 없는 항목이면 False).
         """
         with self._ready_lock:
-            if item_id not in self._ready:
+            item = self._ready.get(item_id)
+            if item is None or item.status == "done":
                 return False
             if item_id in self._enqueued:
                 return False
+            # 재시도 시 실패 표식 초기화 — 대기 상태로 되돌려 전송 시도.
+            item.status = "ready"
+            item.error_reason = ""
             self._enqueued.add(item_id)
+            self._persist_locked()
         self._print_queue.put(item_id)
         return True
 
@@ -502,6 +532,10 @@ class AgentWorker:
                 self._report_failed(job_id, "workOrder", str(e))
 
         # ── 2. 가먼트 디자인 출력 (가먼트 나중, quantity번 반복) ──
+        # process_file 은 받은 파일을 done/error 로 옮긴다. 재시도·재시작에 대비해
+        # 원본(download_path)은 보존하고, 실명 복사본을 만들어 그걸 출력에 넘긴다.
+        # 복사본 basename 이 실명이라 done/error 폴더에도 실제 파일명이 남는다.
+        garment_err: Optional[str] = None
         if item.do_garment and printer_name:
             qty = max(1, int(job.get("quantity", 1)))
             needs_plate_change = bool(job.get("needsPlateChange", False))
@@ -515,16 +549,7 @@ class AgentWorker:
                     if not self._running:
                         raise RuntimeError("사용자 중지 요청")
                     logger.info("  [%d/%d]", n + 1, qty)
-                    process_file(
-                        download_path,
-                        printer_name=printer_name,
-                        needs_plate_change=needs_plate_change,
-                    )
-                    # process_file은 성공 시 done/으로 옮긴다 — 다음 회차 위해 복사본 복원 필요
-                    if n + 1 < qty:
-                        done_path = os.path.join(config.DONE_DIR, os.path.basename(download_path))
-                        if os.path.exists(done_path):
-                            shutil.copy(done_path, download_path)
+                    self._print_one_copy(download_path, filename, printer_name, needs_plate_change)
                 self._report_printed(job_id, "garment")
                 with self._ready_lock:
                     item.do_garment = False
@@ -533,31 +558,68 @@ class AgentWorker:
                 _fire(self.on_done, filename)
             except Exception as e:
                 any_error = True
+                garment_err = str(e)
                 logger.exception("가먼트 출력 실패: %s", filename)
                 self._report_failed(job_id, "garment", str(e))
-                error_dest = os.path.join(config.ERROR_DIR, filename)
-                if os.path.exists(download_path):
-                    try:
-                        shutil.move(download_path, error_dest)
-                    except Exception:
-                        pass
         elif item.do_garment and not printer_name:
             any_error = True
+            garment_err = "가먼트 프린터 미설정"
             logger.error("가먼트 처리 대상이나 프린터 미설정: %s", filename)
-            self._report_failed(job_id, "garment", "가먼트 프린터 미설정")
+            self._report_failed(job_id, "garment", garment_err)
 
-        # 남은 sub 가 없으면 스토어/그리드에서 제거. 있으면(실패) 재클릭 위해 유지.
+        # 완료/실패 상태 확정. 남은 sub 가 없으면 done(완료 탭), 실패가 있으면 failed(실패 탭).
         with self._ready_lock:
             remaining = item.do_garment or item.do_work_order
             if not remaining:
-                self._ready.pop(job_id, None)
+                item.status = "done"
+                item.error_reason = ""
+                # 완료 원본은 더 쓰지 않으므로 정리 (그리드 카드는 placeholder 썸네일).
+                self._cleanup_source(item.download_path)
+            elif any_error:
+                item.status = "failed"
+                item.error_reason = garment_err or "전송 실패"
             self._persist_locked()
+            evicted = self._evict_old_done_locked() if not remaining else []
         if not remaining:
-            _fire(self.on_item_removed, job_id)
+            _fire(self.on_item_done, job_id)
         elif any_error:
-            _fire(self.on_item_failed, job_id)
+            _fire(self.on_item_failed, job_id, item.error_reason)
+        for ev in evicted:
+            _fire(self.on_item_removed, ev)
         if any_error:
             _fire(self.on_error, filename)
+
+    def _print_one_copy(self, source: str, filename: str, printer_name: str, needs_plate_change: bool):
+        """원본을 건드리지 않도록 실명 복사본을 만들어 출력. process_file 이 복사본을 done/error 로 이동."""
+        work_dir = tempfile.mkdtemp(prefix="garment_")
+        work_copy = os.path.join(work_dir, filename)
+        try:
+            shutil.copy(source, work_copy)
+            process_file(work_copy, printer_name=printer_name, needs_plate_change=needs_plate_change)
+        finally:
+            try:
+                shutil.rmtree(work_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _cleanup_source(path: str):
+        """완료된 출력 원본 삭제 — 실패 시 무시."""
+        try:
+            if path and os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            logger.debug("출력 원본 정리 실패: %s", path, exc_info=True)
+
+    def _evict_old_done_locked(self) -> list[str]:
+        """_ready_lock 보유 상태 — done 이 상한을 넘으면 오래된 것부터 제거하고 제거 id 반환."""
+        done_ids = [iid for iid, it in self._ready.items() if it.status == "done"]
+        if len(done_ids) <= _DONE_KEEP:
+            return []
+        drop = done_ids[: len(done_ids) - _DONE_KEEP]
+        for iid in drop:
+            self._ready.pop(iid, None)
+        return drop
 
     def _persist_locked(self):
         """_ready_lock 보유 상태에서 호출 — ready.json 저장."""
