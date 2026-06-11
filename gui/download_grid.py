@@ -216,18 +216,21 @@ class DesignCard(ctk.CTkFrame):
             self._btn.grid()
             self._btn.configure(state="normal", text="출력", fg_color=theme.ACCENT,
                                 hover_color=theme.ACCENT_HOVER, text_color=theme.TEXT_ON_ACCENT)
-            self._status_lbl.configure(text="", text_color=theme.TEXT_MUTED)
+            self._status_lbl.grid_remove()  # 사유 없음 — 빈 칸 차지 방지
         elif status == "printing":
             self._btn.grid()
             self._btn.configure(state="disabled", text="⟳ 전송 중…", fg_color=theme.PROGRESS)
+            self._status_lbl.grid()
             self._status_lbl.configure(text=reason or "장비로 전송 중", text_color=theme.PROGRESS)
         elif status == "failed":
             self._btn.grid()
             self._btn.configure(state="normal", text="재시도", fg_color=theme.DANGER,
                                 hover_color=theme.DANGER, text_color=theme.TEXT_ON_ACCENT)
+            self._status_lbl.grid()
             self._status_lbl.configure(text=f"실패 — {reason}" if reason else "전송 실패", text_color=theme.DANGER)
         elif status == "done":
             self._btn.grid_remove()
+            self._status_lbl.grid()
             self._status_lbl.configure(text="✅ 전송완료", text_color=theme.SUCCESS)
 
     def set_printing(self, printer: str) -> None:

@@ -33,8 +33,8 @@ class StatusCards(ctk.CTkFrame):
         super().__init__(parent, fg_color="transparent")
         self._on_error_click = on_error_click
 
-        for i in range(5):
-            self.grid_columnconfigure(i, weight=1)
+        # 숫자 카드는 한 자리수라 좁게 고정, 장비 카드만 텍스트라 넓게. stretch 안 함.
+        _MINW = {"pending": 76, "processing": 76, "done": 76, "error": 76, "device": 132}
 
         self._values: dict[str, ctk.CTkLabel] = {}
         self._frames: dict[str, ctk.CTkFrame] = {}
@@ -42,6 +42,7 @@ class StatusCards(ctk.CTkFrame):
             [("pending", "대기"), ("processing", "처리중"), ("done", "완료"),
              ("error", "오류"), ("device", "장비")]
         ):
+            self.grid_columnconfigure(i, weight=0, minsize=_MINW[key])
             card = ctk.CTkFrame(
                 self,
                 corner_radius=theme.CORNER_MD,
@@ -49,7 +50,7 @@ class StatusCards(ctk.CTkFrame):
                 border_width=theme.BORDER_W,
                 border_color=theme.BORDER,
             )
-            card.grid(row=0, column=i, padx=theme.SP_1, pady=0, sticky="nsew")
+            card.grid(row=0, column=i, padx=theme.SP_1, pady=0, sticky="ns")
             self._frames[key] = card
 
             ctk.CTkLabel(
