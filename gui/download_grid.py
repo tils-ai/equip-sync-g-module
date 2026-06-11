@@ -160,7 +160,7 @@ class DesignCard(ctk.CTkFrame):
         _bfont = ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold")
         self._btn_white = ctk.CTkButton(
             self._btns,
-            text="흰옷\nColor",
+            text="흰옷 출력",
             height=theme.TOUCH_LG,
             corner_radius=theme.CORNER_SM,
             command=lambda: self._click(INK_COLOR),
@@ -172,7 +172,7 @@ class DesignCard(ctk.CTkFrame):
         self._btn_white.grid(row=0, column=0, padx=(0, theme.SP_1), sticky="ew")
         self._btn_color = ctk.CTkButton(
             self._btns,
-            text="컬러옷\nW+Color",
+            text="컬러옷 출력",
             height=theme.TOUCH_LG,
             corner_radius=theme.CORNER_SM,
             command=lambda: self._click(INK_WHITE_COLOR),
