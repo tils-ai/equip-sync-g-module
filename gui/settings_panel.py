@@ -50,6 +50,9 @@ class SettingsPanel(ctk.CTkFrame):
         super().__init__(root, width=self.WIDTH, corner_radius=0, fg_color=theme.SURFACE)
         self._open = False
 
+        # pack_propagate(False) 가 없으면 프레임이 자식 크기에 맞춰 줄어들어 width=WIDTH 가 무시된다.
+        # 높이는 place(relheight=1.0) 가 잡고, 폭만 WIDTH 로 고정.
+        self.pack_propagate(False)
         self.place(relx=1.0, rely=0, anchor="ne", relheight=1.0, x=self.WIDTH)
         self._build()
 
