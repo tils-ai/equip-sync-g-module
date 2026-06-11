@@ -193,7 +193,8 @@ class AgentWorker:
         self._ready_lock = threading.Lock()
         self._ready: dict[str, ReadyItem] = {}
         self._enqueued: set[str] = set()  # 출력 큐 투입/처리 중 — 중복 방지
-        self._print_queue: "queue.Queue[str]" = queue.Queue()
+        # 큐 항목 = (item_id, ink override). ink=None 이면 config.INK 사용.
+        self._print_queue: "queue.Queue[tuple[str, Optional[int]]]" = queue.Queue()
         self._print_threads: list[threading.Thread] = []
 
     @property
@@ -451,9 +452,10 @@ class AgentWorker:
 
     # ── 출력 단계 ────────────────────────────────────────────────────────
 
-    def print_ready(self, item_id: str) -> bool:
+    def print_ready(self, item_id: str, ink: Optional[int] = None) -> bool:
         """READY 항목을 출력 큐에 투입 (GUI 클릭 또는 auto). 중복 투입 방지.
 
+        ink: 잉크 모드 (0=Color/흰옷, 2=Color+White/컬러옷). None 이면 config.INK.
         반환: 투입 성공 여부(이미 큐/처리 중이거나 없는 항목이면 False).
         """
         with self._ready_lock:
@@ -467,14 +469,14 @@ class AgentWorker:
             item.error_reason = ""
             self._enqueued.add(item_id)
             self._persist_locked()
-        self._print_queue.put(item_id)
+        self._print_queue.put((item_id, ink))
         return True
 
     def _print_loop(self, printer_name: Optional[str]):
         """프린터 1대에 바인딩된 출력 워커 — 큐에서 항목을 받아 1건씩 순차 전송."""
         while self._running:
             try:
-                item_id = self._print_queue.get(timeout=1)
+                item_id, ink = self._print_queue.get(timeout=1)
             except queue.Empty:
                 continue
             try:
@@ -482,7 +484,7 @@ class AgentWorker:
                     item = self._ready.get(item_id)
                 if item is None:
                     continue
-                self._print_item(item, printer_name)
+                self._print_item(item, printer_name, ink)
             except Exception:
                 logger.exception("출력 워커 예외 (item_id=%s)", item_id)
             finally:
@@ -490,9 +492,10 @@ class AgentWorker:
                     self._enqueued.discard(item_id)
                 self._print_queue.task_done()
 
-    def _print_item(self, item: ReadyItem, printer_name: Optional[str]):
+    def _print_item(self, item: ReadyItem, printer_name: Optional[str], ink: Optional[int] = None):
         """READY 1건 전송 — 지시서 먼저, 가먼트 나중. 성공한 sub 는 SENT 처리하고 제거.
 
+        ink: 잉크 모드 (0=Color/흰옷, 2=Color+White/컬러옷). None 이면 config.INK.
         실패한 sub 는 서버가 READY 유지(작업자 재클릭)하므로 항목을 스토어에 남긴다.
         """
         job = item.job
@@ -563,7 +566,7 @@ class AgentWorker:
                     if not self._running:
                         raise RuntimeError("사용자 중지 요청")
                     logger.info("  [%d/%d]", n + 1, qty)
-                    self._print_one_copy(download_path, filename, printer_name, needs_plate_change)
+                    self._print_one_copy(download_path, filename, printer_name, needs_plate_change, ink)
                 self._report_printed(job_id, "garment")
                 with self._ready_lock:
                     item.do_garment = False
@@ -603,13 +606,13 @@ class AgentWorker:
         if any_error:
             _fire(self.on_error, filename)
 
-    def _print_one_copy(self, source: str, filename: str, printer_name: str, needs_plate_change: bool):
+    def _print_one_copy(self, source: str, filename: str, printer_name: str, needs_plate_change: bool, ink: Optional[int] = None):
         """원본을 건드리지 않도록 실명 복사본을 만들어 출력. process_file 이 복사본을 done/error 로 이동."""
         work_dir = tempfile.mkdtemp(prefix="garment_")
         work_copy = os.path.join(work_dir, filename)
         try:
             shutil.copy(source, work_copy)
-            process_file(work_copy, printer_name=printer_name, needs_plate_change=needs_plate_change)
+            process_file(work_copy, printer_name=printer_name, needs_plate_change=needs_plate_change, ink=ink)
         finally:
             try:
                 shutil.rmtree(work_dir, ignore_errors=True)

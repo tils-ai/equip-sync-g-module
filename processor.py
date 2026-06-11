@@ -12,11 +12,17 @@ import config
 logger = logging.getLogger(__name__)
 
 
-def process_file(file_path: str, printer_name: str | None = None, needs_plate_change: bool = False):
+def process_file(
+    file_path: str,
+    printer_name: str | None = None,
+    needs_plate_change: bool = False,
+    ink: int | None = None,
+):
     """파일 처리 → 출력 모드에 따라 분기 → done/error 이동.
 
     printer_name: 다중 프린터 분배기에서 미리 결정한 대상 프린터. None이면 config.PRINTER_NAME 사용.
     needs_plate_change: 주문서 플레이트 교체 대상(아동용 등). True면 아동 플레이트(10x12)로 출력.
+    ink: 잉크 모드 오버라이드 (0=Color/흰옷, 2=Color+White/컬러옷). None이면 config.INK.
     """
     os.makedirs(config.DONE_DIR, exist_ok=True)
     os.makedirs(config.ERROR_DIR, exist_ok=True)
@@ -30,7 +36,7 @@ def process_file(file_path: str, printer_name: str | None = None, needs_plate_ch
             raise RuntimeError(f"출력할 이미지가 없습니다: {filename}")
 
         if config.PRINTER_MODE == "cli":
-            _print_via_cli(images, target_printer, needs_plate_change)
+            _print_via_cli(images, target_printer, needs_plate_change, ink)
         else:
             _print_via_direct(images, target_printer)
 
@@ -112,10 +118,11 @@ def _print_via_direct(images: list[Image.Image], printer_name: str):
         print_image(_flatten_to_white(img), printer_name)
 
 
-def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_change: bool = False):
+def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_change: bool = False, ink: int | None = None):
     """가먼트 CLI 경유 출력 (PNG만 지원).
 
     needs_plate_change=True 면 아동 플레이트(10x12), 아니면 성인 플레이트(14x16) 사용.
+    ink: 잉크 모드 오버라이드 (0=Color, 2=Color+White). None이면 config.INK.
     AUTO_FIT 모드(기본): 이미지를 플레이트에 contain(축소만, 작으면 원본), 가로 중앙·세로 상단 배치.
     """
     from garment_cli import (
@@ -142,11 +149,16 @@ def _print_via_cli(images: list[Image.Image], printer_name: str, needs_plate_cha
         data_ext = preferred_data_extension(printer_name)
         target_model = "pro" if data_ext == ".arxp" else "legacy"
         xml_path = os.path.join(tmp_dir, "settings.xml")
+        xml_overrides = {}
+        if ink is not None:
+            xml_overrides["ink"] = int(ink)
+            logger.info("  잉크 모드 오버라이드: %s", "Color+White(컬러옷)" if int(ink) == 2 else f"ink={ink}")
         build_xml(
             xml_path,
             platen_size=platen_idx,  # byPlatenSize 를 선택 플레이트와 동기화
             target_model=target_model,
             include_machine_mode=target_model != "pro",
+            **xml_overrides,
         )
 
         for i, img in enumerate(images):
