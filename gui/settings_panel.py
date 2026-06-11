@@ -105,7 +105,11 @@ class SettingsPanel(ctk.CTkFrame):
             header,
             text="⨯",
             width=32,
+            height=32,
             font=ctk.CTkFont(family=_font_family(), size=14),
+            fg_color=theme.NEUTRAL_BTN,
+            hover_color=theme.NEUTRAL_HOVER,
+            text_color=theme.TEXT,
             command=self.close,
         ).pack(side="right")
 
@@ -205,7 +209,11 @@ class SettingsPanel(ctk.CTkFrame):
             actions,
             text="지금 인증",
             width=120,
-            font=ctk.CTkFont(family=_font_family(), size=11, weight="bold"),
+            height=36,
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold"),
+            fg_color=theme.ACCENT,
+            hover_color=theme.ACCENT_HOVER,
+            text_color=theme.TEXT_ON_ACCENT,
             command=self._start_pairing,
         )
         self._pair_button.pack(side="right")
@@ -369,7 +377,8 @@ class SettingsPanel(ctk.CTkFrame):
 
         ctk.CTkButton(
             row_frame, text="↻", width=28,
-            font=ctk.CTkFont(family=_font_family(), size=11),
+            font=ctk.CTkFont(family=_font_family(), size=13),
+            fg_color=theme.NEUTRAL_BTN, hover_color=theme.NEUTRAL_HOVER, text_color=theme.TEXT,
             command=refresh,
         ).grid(row=0, column=menu_col_next, padx=(2, 0))
 
@@ -395,19 +404,21 @@ class SettingsPanel(ctk.CTkFrame):
         for name in names:
             chip = ctk.CTkFrame(
                 self._garment_chips_frame,
-                fg_color=("gray85", "gray25"),
-                corner_radius=12,
+                fg_color=theme.SURFACE_3,
+                corner_radius=theme.CORNER_SM,
             )
             chip.pack(side="left", padx=2, pady=2)
             ctk.CTkLabel(
                 chip, text=name,
                 font=ctk.CTkFont(family=_font_family(), size=11),
+                text_color=theme.TEXT,
             ).pack(side="left", padx=(8, 2), pady=2)
             ctk.CTkButton(
                 chip, text="×", width=22, height=22,
                 font=ctk.CTkFont(family=_font_family(), size=13),
                 fg_color="transparent",
-                hover_color=("gray70", "gray35"),
+                hover_color=theme.NEUTRAL_HOVER,
+                text_color=theme.TEXT,
                 command=lambda n=name: self._remove_garment_printer(n),
             ).pack(side="left", padx=(0, 4), pady=2)
 
@@ -534,7 +545,11 @@ class SettingsPanel(ctk.CTkFrame):
             parent,
             text="config.ini 편집",
             width=120,
-            font=ctk.CTkFont(family=_font_family(), size=11),
+            height=36,
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY),
+            fg_color=theme.NEUTRAL_BTN,
+            hover_color=theme.NEUTRAL_HOVER,
+            text_color=theme.TEXT,
             command=lambda: _open_in_editor(Path(config.INI_PATH)),
         ).grid(row=1, column=0, sticky="w", pady=2)
 

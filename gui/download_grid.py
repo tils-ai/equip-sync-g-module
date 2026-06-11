@@ -135,22 +135,26 @@ class DesignCard(ctk.CTkFrame):
             text_color=theme.TEXT_SUB,
         ).grid(row=2, column=0, padx=theme.SP_2, sticky="ew")
 
-        # 배지 — 지시서 포함 / 아동 플레이트 / 수량
-        badges = []
+        # 배지 칩 — 정보성(지시서/수량)=ACCENT, 경고성(아동 플레이트)=WARNING. 배경 틴트로 칩화.
+        badge_row = ctk.CTkFrame(self, fg_color="transparent", height=24)
+        badge_row.grid(row=3, column=0, padx=theme.SP_2, pady=(theme.SP_1, 0), sticky="ew")
+        chips = []
         if self._has_work_order:
-            badges.append("📄 지시서")
+            chips.append(("📄 지시서", theme.ACCENT, theme.ACCENT_SOFT))
         if job.get("needsPlateChange"):
-            badges.append("👶 아동")
+            chips.append(("👶 아동", theme.WARNING, theme.WARNING_SOFT))
         qty = int(job.get("quantity", 1) or 1)
         if qty > 1:
-            badges.append(f"×{qty}")
-        ctk.CTkLabel(
-            self,
-            text="   ".join(badges) if badges else " ",
-            anchor="w",
-            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION),
-            text_color=theme.ACCENT,
-        ).grid(row=3, column=0, padx=theme.SP_2, pady=(theme.SP_1, 0), sticky="ew")
+            chips.append((f"×{qty}", theme.TEXT_SUB, theme.SURFACE_3))
+        for text, fg, bg in chips:
+            ctk.CTkLabel(
+                badge_row,
+                text=text,
+                font=ctk.CTkFont(family=_font_family(), size=11),
+                text_color=fg,
+                fg_color=bg,
+                corner_radius=theme.CORNER_SM,
+            ).pack(side="left", padx=(0, theme.SP_1), ipadx=6, ipady=2)
 
         # 액션 버튼 2개 — 흰옷(Color) / 컬러옷(White+Color). 옷 색에 따라 즉석 선택.
         self._btns = ctk.CTkFrame(self, fg_color="transparent")
