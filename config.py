@@ -422,6 +422,10 @@ for _d in (INCOMING_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR, DOW
 
 def save_value(section: str, key: str, value: str):
     """config.ini에 값을 저장한다."""
+    # 구버전 config.ini 에는 이후 추가/개명된 섹션([garment_cli] 등)이 없어
+    # 가드 없이 set() 하면 NoSectionError 가 난다.
+    if not _ini.has_section(section):
+        _ini.add_section(section)
     _ini.set(section, key, value)
     with open(INI_PATH, "w", encoding="utf-8") as f:
         _ini.write(f)
