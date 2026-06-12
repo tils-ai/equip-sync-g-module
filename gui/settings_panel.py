@@ -43,8 +43,6 @@ def _open_in_editor(path: Path) -> None:
 class SettingsPanel(ctk.CTkFrame):
     WIDTH = 520
     WRAP = 440
-    ANIM_MS = 220
-    ANIM_STEPS = 12
 
     def __init__(self, root: ctk.CTk) -> None:
         super().__init__(root, width=self.WIDTH, corner_radius=0, fg_color=theme.SURFACE)
@@ -53,50 +51,30 @@ class SettingsPanel(ctk.CTkFrame):
         # pack_propagate(False) 가 없으면 프레임이 자식 크기에 맞춰 줄어들어 width=WIDTH 가 무시된다.
         # 높이는 place(relheight=1.0) 가 잡고, 폭만 WIDTH 로 고정.
         self.pack_propagate(False)
-        # 슬라이드 x 는 논리 좌표로 직접 추적한다. place_info() 는 DPI 스케일이 적용된
-        # raw 픽셀을 돌려줘서, 스케일 환경(Windows 125~150%)에서 닫기 거리가 모자라
-        # 패널 일부가 화면에 남는다.
-        self._x = self.WIDTH
-        self.place(relx=1.0, rely=0, anchor="ne", relheight=1.0, x=self._x)
         self._build()
 
     # ── 외부 API ─────────────────────────────
+    # 슬라이드 애니메이션 대신 place/place_forget 즉시 토글.
+    # 슬라이드는 이동 거리(raw px)와 패널 폭(DPI 스케일 적용)이 어긋나
+    # Windows 배율 환경에서 패널 일부가 화면에 남는 문제가 있었다.
     def open(self) -> None:
         if self._open:
             return
         self._open = True
+        self.place(relx=1.0, rely=0, anchor="ne", relheight=1.0, x=0)
         self.lift()
-        self._slide(target_x=0)
 
     def close(self) -> None:
         if not self._open:
             return
         self._open = False
-        self._slide(target_x=self.WIDTH)
+        self.place_forget()
 
     def toggle(self) -> None:
         if self._open:
             self.close()
         else:
             self.open()
-
-    def _slide(self, *, target_x: int) -> None:
-        current_x = self._x
-        self._x = target_x
-        delta = (target_x - current_x) / self.ANIM_STEPS
-        step_delay = max(1, self.ANIM_MS // self.ANIM_STEPS)
-
-        def step(i: int) -> None:
-            new_x = int(current_x + delta * i)
-            # place_configure 가 아닌 place 사용 — CTk 가 DPI 스케일을 적용해
-            # 생성자/place 의 width 스케일과 이동 거리가 일치한다.
-            self.place(x=new_x)
-            if i < self.ANIM_STEPS:
-                self.after(step_delay, lambda: step(i + 1))
-            else:
-                self.place(x=target_x)
-
-        step(1)
 
     # ── UI ──────────────────────────────────
     def _build(self) -> None:
