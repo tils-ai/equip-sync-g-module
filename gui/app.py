@@ -20,6 +20,7 @@ import customtkinter as ctk
 import config
 
 from .cards import StatusCards
+from .confirm_dialog import ConfirmDialog
 from .download_grid import DownloadGrid
 from .header import Header
 from .log_box import LogBox, attach_logging
@@ -115,7 +116,11 @@ class WatcherApp(ctk.CTk):
         self.control.grid(row=0, column=2, sticky="nse")
 
         # ── 메인: 출력 대기 그리드 ──
-        self.download_grid = DownloadGrid(self, on_print=self._on_print_clicked)
+        self.download_grid = DownloadGrid(
+            self,
+            on_print=self._on_print_clicked,
+            on_delete=self._on_delete_clicked,
+        )
         self.download_grid.grid(row=2, column=0, sticky="nsew", padx=12, pady=4)
 
         # ── 하단 스트립: 최근 처리(좌) + 로그(우) 한 줄 ──
@@ -269,6 +274,35 @@ class WatcherApp(ctk.CTk):
             return
         if not self._agent.print_ready(item_id, ink):
             logger.info("출력 투입 무시 — 이미 전송 중이거나 없는 항목: %s", item_id)
+
+    def _on_delete_clicked(self, item_id: str, label: str) -> None:
+        """카드 [✕] 클릭 → 확인 모달 → 큐에서 삭제.
+
+        삭제는 서버 호출을 포함하므로 백그라운드 스레드에서 돌린다. 메인 스레드에서
+        하면 응답을 기다리는 동안 화면이 멈춘다.
+        """
+        if self._agent is None:
+            return
+
+        confirmed = ConfirmDialog.ask(
+            self,
+            title="디자인 삭제",
+            message="이 디자인을 출력 큐에서 삭제할까요?",
+            detail=(
+                f"{label}\n\n"
+                "되돌릴 수 없습니다. 잘못 지웠다면 관리자 주문 관리의 "
+                "재출력으로 다시 보낼 수 있습니다."
+            ),
+        )
+        if not confirmed:
+            return
+
+        def worker():
+            ok, reason = self._agent.delete_ready(item_id)
+            if not ok:
+                logger.warning("디자인 삭제 실패 — %s (%s)", reason, label.replace("\n", " / "))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _push_recent(self, filename: str, status: str, detail: str) -> None:
         try:

@@ -6,6 +6,10 @@
   - 실패(failed): [재시도] 클릭으로 재전송, 실패 사유 표시
   - 완료(done): 전송완료 이력 (딤 처리, 버튼 없음)
 
+카드 우측 상단의 [✕] 는 중복·오생성 디자인을 큐에서 걷어낸다. 예전에는 없애려면
+출력 버튼을 눌러 흘려보내야 했고 그때마다 작업지시서가 같이 인쇄돼 용지가 낭비됐다.
+전송 중(printing)과 완료(done)에서는 숨긴다.
+
 설계: dps-store/docs/print/20260609-garment-worker-gated-print.md §5-2,
       dps-store/docs/print/20260611-garment-client-gui-design.md
 콜백(on_ready/on_printing/on_item_done/on_item_failed/on_item_removed)은
@@ -78,7 +82,13 @@ def _make_thumb(path: str, size: int):
 class DesignCard(ctk.CTkFrame):
     """디자인 1건 카드 — 썸네일 + 이름 + 배지 + 상태별 버튼."""
 
-    def __init__(self, parent, item, on_print: Callable[[str], None]) -> None:
+    def __init__(
+        self,
+        parent,
+        item,
+        on_print: Callable[[str], None],
+        on_delete: Callable[[str, str], None],
+    ) -> None:
         super().__init__(
             parent,
             fg_color=theme.SURFACE,
@@ -90,6 +100,7 @@ class DesignCard(ctk.CTkFrame):
         self.item_id = item.id
         self.status = getattr(item, "status", "ready") or "ready"
         self._on_print = on_print
+        self._on_delete = on_delete
         self.grid_columnconfigure(0, weight=1)
 
         job = item.job or {}
@@ -125,6 +136,8 @@ class DesignCard(ctk.CTkFrame):
 
         # 상품명 / 옵션
         sub = product + (f" · {option}" if option else "")
+        # 삭제 확인 모달에 무엇을 지우는지 보여주기 위한 라벨
+        self._label = f"{order_number}{seq}" + (f"\n{sub}" if sub else "")
         ctk.CTkLabel(
             self,
             text=sub,
@@ -190,6 +203,22 @@ class DesignCard(ctk.CTkFrame):
         )
         self._btn_color.grid(row=0, column=1, padx=(theme.SP_1, 0), sticky="ew")
 
+        # 삭제(X) — 카드 우측 상단. 중복·오생성 디자인을 출력 버튼으로 흘려보내지 않고 바로 걷어낸다.
+        # place 로 썸네일 위에 겹쳐 올려 카드 높이를 늘리지 않는다.
+        self._btn_delete = ctk.CTkButton(
+            self,
+            text="✕",
+            width=26,
+            height=26,
+            corner_radius=theme.CORNER_SM,
+            command=self._click_delete,
+            font=ctk.CTkFont(family=_font_family(), size=13, weight="bold"),
+            fg_color=theme.SURFACE_3,
+            hover_color=theme.DANGER,
+            text_color=theme.TEXT_SUB,
+        )
+        self._btn_delete.place(relx=1.0, x=-(theme.SP_2 + 2), y=theme.SP_2 + 2, anchor="ne")
+
         # 상태 라벨 (전송 중/실패 사유/완료)
         self._status_lbl = ctk.CTkLabel(
             self,
@@ -233,6 +262,17 @@ class DesignCard(ctk.CTkFrame):
     def _click(self, ink: int) -> None:
         self._on_print(self.item_id, ink)
 
+    def _click_delete(self) -> None:
+        self._on_delete(self.item_id, self._label)
+
+    def _set_delete_visible(self, visible: bool) -> None:
+        """전송 중에는 숨긴다 — 전송 결과를 반영할 대상이 사라지면 안 된다.
+        완료 이력에서도 숨긴다 — 걷어낼 대상은 아직 출력하지 않은 건이다."""
+        if visible:
+            self._btn_delete.place(relx=1.0, x=-(theme.SP_2 + 2), y=theme.SP_2 + 2, anchor="ne")
+        else:
+            self._btn_delete.place_forget()
+
     def _set_buttons(self, state: str) -> None:
         self._btn_white.configure(state=state)
         self._btn_color.configure(state=state)
@@ -244,6 +284,7 @@ class DesignCard(ctk.CTkFrame):
             border_color=_STATUS_BORDER.get(status, theme.BORDER),
             fg_color=_STATUS_BG.get(status, theme.SURFACE),
         )
+        self._set_delete_visible(status in ("ready", "failed"))
         if status == "ready":
             self._btns.grid()
             self._set_buttons("normal")
@@ -279,9 +320,15 @@ class DesignCard(ctk.CTkFrame):
 class DownloadGrid(ctk.CTkFrame):
     """상태 탭 + 반응형 카드 그리드 컨테이너."""
 
-    def __init__(self, parent, on_print: Callable[[str], None]) -> None:
+    def __init__(
+        self,
+        parent,
+        on_print: Callable[[str], None],
+        on_delete: Callable[[str, str], None],
+    ) -> None:
         super().__init__(parent, fg_color="transparent")
         self._on_print = on_print
+        self._on_delete = on_delete
         self._cards: dict[str, DesignCard] = {}
         self._order: list[str] = []
         self._filter = "ready"
@@ -335,7 +382,7 @@ class DownloadGrid(ctk.CTkFrame):
         item_id = getattr(item, "id", "")
         if not item_id or item_id in self._cards:
             return
-        card = DesignCard(self._scroll, item, self._on_print)
+        card = DesignCard(self._scroll, item, self._on_print, self._on_delete)
         self._cards[item_id] = card
         self._order.append(item_id)
         self._reflow()
