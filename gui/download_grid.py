@@ -367,7 +367,11 @@ class DownloadGrid(ctk.CTkFrame):
 
         self._scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self._scroll.grid(row=2, column=0, sticky="nsew", padx=4, pady=(4, 4))
-        self._scroll.bind("<Configure>", self._on_resize)
+        # add="+" 가 없으면 CTkScrollableFrame 이 자기 <Configure> 에 걸어 둔 처리를 덮어쓴다.
+        # 그 처리가 스크롤 영역(scrollregion)을 내용 크기에 맞춰 갱신하는 일을 하므로,
+        # 덮어쓰면 **카드가 늘어나도 스크롤 범위가 그대로여서 아래로 내려가지 않는다.**
+        # 주문이 쌓였을 때만 드러나던 문제의 원인이다.
+        self._scroll.bind("<Configure>", self._on_resize, add="+")
 
         self._empty = ctk.CTkLabel(
             self._scroll,
@@ -377,12 +381,52 @@ class DownloadGrid(ctk.CTkFrame):
         )
         self._reflow()
 
+    # ── 마우스 휠 ──
+    def _bind_wheel(self, widget) -> None:
+        """카드와 그 자식들에 휠을 직접 묶는다.
+
+        `CTkScrollableFrame` 은 이벤트가 온 위젯이 자기 캔버스 자손인지 따져 스크롤할지
+        정하는데, 카드처럼 여러 겹으로 중첩된 위젯에서는 그 판별이 어긋나 휠이 무시된다.
+        **주문이 쌓여 카드가 화면을 덮으면 커서가 늘 카드 위에 있게 되어 스크롤이 아예
+        안 되는 것처럼 보인다.** 카드가 몇 개 없을 때는 빈 여백에 커서를 두면 굴러가서
+        문제가 드러나지 않았다.
+
+        카드를 만들 때 한 번만 묶는다. 썸네일은 기존 라벨의 이미지를 바꿀 뿐 위젯을 새로
+        만들지 않으므로 나중에 다시 묶을 필요가 없다.
+        """
+        widget.bind("<MouseWheel>", self._on_wheel, add="+")
+        # X11(리눅스)은 휠을 Button-4/5 로 보낸다
+        widget.bind("<Button-4>", self._on_wheel, add="+")
+        widget.bind("<Button-5>", self._on_wheel, add="+")
+        for child in widget.winfo_children():
+            self._bind_wheel(child)
+
+    def _on_wheel(self, event):
+        """휠 이벤트를 스크롤 캔버스로 넘긴다. `break` 로 기본 처리를 막아 두 번 굴러가지 않게 한다."""
+        canvas = getattr(self._scroll, "_parent_canvas", None)
+        if canvas is None:
+            return None
+
+        num = getattr(event, "num", None)
+        if num == 4:
+            delta = -1
+        elif num == 5:
+            delta = 1
+        else:
+            # 윈도우는 120 단위로 온다. 한 번에 여러 칸 굴린 경우도 반영한다
+            step = -1 if event.delta > 0 else 1
+            delta = step * max(1, abs(int(event.delta / 120)))
+
+        canvas.yview_scroll(delta, "units")
+        return "break"
+
     # ── 공개 API (메인 스레드에서 호출) ──
     def add_item(self, item) -> None:
         item_id = getattr(item, "id", "")
         if not item_id or item_id in self._cards:
             return
         card = DesignCard(self._scroll, item, self._on_print, self._on_delete)
+        self._bind_wheel(card)
         self._cards[item_id] = card
         self._order.append(item_id)
         self._reflow()
