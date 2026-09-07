@@ -63,6 +63,18 @@ class GarmentApiClient:
         )
         resp.raise_for_status()
 
+    def delete_job(self, job_id: str) -> dict:
+        """큐 1건 삭제 — 중복·오생성 디자인을 작업자가 큐에서 걷어낼 때.
+
+        복구 기능은 없다. 잘못 지웠으면 관리자 주문 관리의 재출력으로 다시 넣는다.
+        """
+        resp = self.session.delete(
+            f"{self.base_url}/api/printer/garment/{job_id}",
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def mark_failed(self, job_id: str, target: str, reason: str = ""):
         """출력 실패 보고. target: "garment" | "workOrder"."""
         body = {"target": target}

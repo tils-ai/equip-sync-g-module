@@ -567,6 +567,50 @@ class AgentWorker:
         self._print_queue.put((item_id, ink))
         return True
 
+    def delete_ready(self, item_id: str) -> tuple[bool, str]:
+        """READY 항목을 큐에서 삭제 (GUI 삭제 버튼).
+
+        중복되거나 잘못 만들어진 디자인을 걷어낸다. 전에는 없애려면 출력 버튼을 눌러
+        흘려보내야 했고, 그때마다 작업지시서가 같이 인쇄돼 용지가 낭비됐다.
+
+        서버 삭제가 성공해야 로컬에서도 지운다. 로컬만 지우면 다음 풀링에서 같은 건이
+        다시 내려온다. 404 는 서버에 이미 없다는 뜻이므로 성공으로 본다.
+
+        **복구는 없다.** 잘못 지웠으면 관리자 주문 관리의 재출력으로 다시 넣는다.
+        반환: (성공 여부, 사용자에게 보여줄 사유)
+        """
+        with self._ready_lock:
+            item = self._ready.get(item_id)
+            if item is None:
+                return False, "이미 없는 항목입니다."
+            # 장비로 보내는 중에 지우면 전송 결과를 반영할 대상이 사라진다
+            if item_id in self._enqueued:
+                return False, "전송 중인 항목은 삭제할 수 없습니다."
+            label = item.filename
+            paths = [item.download_path, *(item.job.get("thumbnailPaths") or [])]
+
+        if self._client is None:
+            return False, "서버에 연결되어 있지 않습니다."
+
+        try:
+            self._client.delete_job(item_id)
+        except Exception as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status != 404:
+                logger.error("큐 삭제 실패 — 서버 오류 (%s): %s", label, e)
+                return False, f"서버 삭제 실패: {e}"
+            logger.info("큐 삭제 — 서버에 이미 없음, 로컬만 정리: %s", label)
+
+        with self._ready_lock:
+            self._ready.pop(item_id, None)
+            self._persist_locked()
+        for path in paths:
+            self._cleanup_source(path)
+
+        logger.info("큐 삭제됨: %s (id=%s)", label, item_id)
+        _fire(self.on_item_removed, item_id)
+        return True, ""
+
     def _print_loop(self, printer_name: Optional[str], gen: int):
         """프린터 1대에 바인딩된 출력 워커 — 큐에서 항목을 받아 1건씩 순차 전송.
 
