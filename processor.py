@@ -3,17 +3,15 @@ import os
 import shutil
 import tempfile
 import time
-import zipfile
 
-from PIL import Image, ImageChops
+from PIL import Image
 
 import config
 
 logger = logging.getLogger(__name__)
 
-# 흰 배경 합성 시 '사실상 투명'으로 간주할 알파 상한.
-# 이 값 미만만 배경(정확한 흰색)으로 잘라내고, 이상은 실제 알파로 합성해 그라데이션을 보존한다.
-ALPHA_CUTOFF = 8
+#: PNG 시그니처. 확장자와 서버가 알려준 타입은 둘 다 틀릴 수 있어 앞머리로 판별한다
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def process_file(
@@ -35,18 +33,12 @@ def process_file(
     target_printer = printer_name or config.PRINTER_NAME
 
     try:
-        images = _load_images(file_path)
-        if not images:
-            raise RuntimeError(f"출력할 이미지가 없습니다: {filename}")
-
-        # 흰 배경 평탄화는 PDF 래스터화 산물을 정리하기 위한 보정이다(_flatten_to_white 참조).
-        # PNG/JPG/ZIP 은 디자이너가 만든 원본 이미지이므로 픽셀을 건드리지 않고 그대로 넘긴다.
-        from_pdf = os.path.splitext(file_path)[1].lower() == ".pdf"
+        _ensure_png(file_path)
 
         if config.PRINTER_MODE == "cli":
-            _print_via_cli(images, target_printer, needs_plate_change, ink, from_pdf)
+            _print_via_cli(file_path, target_printer, needs_plate_change, ink)
         else:
-            _print_via_direct(images, target_printer)
+            _print_via_direct(file_path, target_printer)
 
         dest = _unique_path(os.path.join(config.DONE_DIR, filename))
         shutil.move(file_path, dest)
@@ -65,79 +57,43 @@ def process_file(
         raise
 
 
-def _load_images(file_path: str) -> list[Image.Image]:
-    """파일 타입에 따라 PIL Image 리스트로 변환.
+def _ensure_png(file_path: str) -> None:
+    """PNG 인지 확인한다.
 
-    - PDF: pdf2image로 변환
-    - PNG/JPG: 직접 로드
-    - ZIP: 내부 이미지 파일 추출
+    **장비로 나가는 것은 PNG 뿐이다.** 예전에는 PDF 를 받아 래스터화한 뒤 흰 배경을 합성해
+    넘겼는데, 그 합성 단계가 알파 그라데이션을 뭉개 출력물이 계단처럼 나오는 사고를 냈다.
+    지금은 서버가 PNG 만 내려주므로 래스터화도 보정도 하지 않고 받은 파일을 그대로 넘긴다.
+
+    확장자와 서버가 알려준 타입은 둘 다 틀릴 수 있어 파일 앞머리로 본다.
     """
-    ext = os.path.splitext(file_path)[1].lower()
-
-    if ext == ".pdf":
-        return _load_from_pdf(file_path)
-    elif ext == ".png" or ext == ".jpg" or ext == ".jpeg":
-        return [Image.open(file_path).copy()]
-    elif ext == ".zip":
-        return _load_from_zip(file_path)
-    else:
-        raise RuntimeError(f"지원하지 않는 파일 형식: {ext}")
+    with open(file_path, "rb") as f:
+        head = f.read(len(PNG_SIGNATURE))
+    if head != PNG_SIGNATURE:
+        raise RuntimeError(f"PNG 파일이 아닙니다 (PNG 만 출력합니다): {os.path.basename(file_path)}")
 
 
-def _load_from_pdf(file_path: str) -> list[Image.Image]:
-    """PDF → PIL Image 리스트 (투명 배경 보존)."""
-    from pdf2image import convert_from_path
-
-    return convert_from_path(
-        file_path,
-        dpi=config.RENDER_DPI,
-        poppler_path=config.POPPLER_PATH,
-        transparent=True,
-        use_pdftocairo=True,
-    )
-
-
-def _load_from_zip(file_path: str) -> list[Image.Image]:
-    """ZIP 내부의 이미지 파일(PNG/JPG)을 추출하여 PIL Image 리스트로 반환."""
-    images = []
-    tmp_dir = tempfile.mkdtemp(prefix="zip_")
-    try:
-        with zipfile.ZipFile(file_path, "r") as zf:
-            zf.extractall(tmp_dir)
-
-        image_exts = {".png", ".jpg", ".jpeg"}
-        for root, _, files in os.walk(tmp_dir):
-            for name in sorted(files):
-                if os.path.splitext(name)[1].lower() in image_exts:
-                    img_path = os.path.join(root, name)
-                    images.append(Image.open(img_path).copy())
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    return images
-
-
-def _print_via_direct(images: list[Image.Image], printer_name: str):
-    """win32print 직접 출력. 가먼트 잉크 과소비 방지를 위해 흰 배경 평탄화."""
+def _print_via_direct(png_path: str, printer_name: str):
+    """win32print 직접 출력 — 벤더 CLI 가 듣지 않을 때의 물러설 자리."""
     from printer import print_image
 
-    for i, img in enumerate(images, 1):
-        logger.info("  페이지 %d/%d 출력 중 (%s)...", i, len(images), printer_name)
-        print_image(_flatten_to_white(img), printer_name)
+    logger.info("  직접 출력 중 (%s)...", printer_name)
+    with Image.open(png_path) as img:
+        print_image(img, printer_name)
 
 
 def _print_via_cli(
-    images: list[Image.Image],
+    png_path: str,
     printer_name: str,
     needs_plate_change: bool = False,
     ink: int | None = None,
-    from_pdf: bool = False,
 ):
-    """가먼트 CLI 경유 출력 (PNG만 지원).
+    """가먼트 CLI 경유 출력.
+
+    **받은 PNG 를 손대지 않는다.** 크기와 해상도만 헤더에서 읽어 배치를 계산하고,
+    파일은 그대로 CLI 에 넘긴다.
 
     needs_plate_change=True 면 아동 플레이트(10x12), 아니면 성인 플레이트(14x16) 사용.
     ink: 잉크 모드 오버라이드 (0=Color, 2=Color+White). None이면 config.INK.
-    from_pdf=True 일 때만 흰 배경 평탄화를 적용한다(원본 이미지는 무보정 통과).
     AUTO_FIT 모드(기본): 이미지를 플레이트에 contain(축소만, 작으면 원본), 가로 중앙·세로 상단 배치.
     """
     from garment_cli import (
@@ -176,80 +132,74 @@ def _print_via_cli(
             **xml_overrides,
         )
 
-        for i, img in enumerate(images):
-            png_path = os.path.join(tmp_dir, f"page_{i}.png")
-            arx4_path = os.path.join(tmp_dir, f"page_{i}{data_ext}")
+        arx4_path = os.path.join(tmp_dir, f"print{data_ext}")
 
-            out_img = _prepare_for_cli(img, from_pdf)
-            out_img.save(png_path, "PNG", dpi=(config.RENDER_DPI, config.RENDER_DPI))
-
+        # 헤더만 읽어 크기·해상도를 얻는다. 파일 핸들을 물고 있으면 CLI 가 같은 파일을
+        # 열 때 걸릴 수 있어 바로 닫는다
+        with Image.open(png_path) as img:
             base_w, base_h = _image_dims_mm10(img)
-            non_white_pixels, non_white_bbox = _non_white_stats(out_img)
-            if config.AUTO_FIT and not manual_size:
-                # GTXpro는 DPI 없는 PNG + -R 조합에서 기본 DPI 해석이 달라질 수 있다.
-                # AUTO_FIT은 0.1mm 절대 크기(-S)로 넘겨 API의 DPI 추정에 의존하지 않는다.
-                scale = min(platen_w / max(1, base_w), platen_h / max(1, base_h), 1.0)
-                eff_w, eff_h = int(round(base_w * scale)), int(round(base_h * scale))
-                size = f"{eff_w:04d}{eff_h:04d}"
-                magnification = None
-                position = _calc_fit_position(eff_w, eff_h, platen_w, platen_h)
-            elif manual_size:
-                # SIZE 수동 지정 우선
-                size = manual_size
-                magnification = None
-                eff_w, eff_h = _parse_size(manual_size, base_w, base_h)
-                position = (
-                    _calc_center_position(eff_w, eff_h, platen_w, platen_h)
-                    if config.AUTO_CENTER else None
-                )
+            img_dpi = img.info.get("dpi")
+
+        if config.AUTO_FIT and not manual_size:
+            # GTXpro는 DPI 없는 PNG + -R 조합에서 기본 DPI 해석이 달라질 수 있다.
+            # AUTO_FIT은 0.1mm 절대 크기(-S)로 넘겨 API의 DPI 추정에 의존하지 않는다.
+            scale = min(platen_w / max(1, base_w), platen_h / max(1, base_h), 1.0)
+            eff_w, eff_h = int(round(base_w * scale)), int(round(base_h * scale))
+            size = f"{eff_w:04d}{eff_h:04d}"
+            magnification = None
+            position = _calc_fit_position(eff_w, eff_h, platen_w, platen_h)
+        elif manual_size:
+            # SIZE 수동 지정 우선
+            size = manual_size
+            magnification = None
+            eff_w, eff_h = _parse_size(manual_size, base_w, base_h)
+            position = (
+                _calc_center_position(eff_w, eff_h, platen_w, platen_h)
+                if config.AUTO_CENTER else None
+            )
+        else:
+            # 수동 MAGNIFICATION 또는 원본 크기 + (옵션) 중앙 정렬
+            size = None
+            magnification = config.MAGNIFICATION or None
+            if magnification:
+                mag = int(magnification) / 1000.0
+                eff_w, eff_h = int(round(base_w * mag)), int(round(base_h * mag))
             else:
-                # 수동 MAGNIFICATION 또는 원본 크기 + (옵션) 중앙 정렬
-                size = None
-                magnification = config.MAGNIFICATION or None
-                if magnification:
-                    mag = int(magnification) / 1000.0
-                    eff_w, eff_h = int(round(base_w * mag)), int(round(base_h * mag))
-                else:
-                    eff_w, eff_h = base_w, base_h
-                position = (
-                    _calc_center_position(eff_w, eff_h, platen_w, platen_h)
-                    if config.AUTO_CENTER else None
-                )
-
-            logger.info(
-                "  배치 — %s 플레이트 %dx%d, 이미지 %dx%d (0.1mm), 위치 %s, size=%s, mag=%s",
-                platen_label, platen_w, platen_h, eff_w, eff_h,
-                position or config.POSITION, size or "-", magnification or "-",
-            )
-            logger.info(
-                "  이미지 진단 — dpi=%s, nonWhite=%d, bbox=%s",
-                img.info.get("dpi") or f"default:{config.RENDER_DPI}",
-                non_white_pixels,
-                non_white_bbox or "-",
+                eff_w, eff_h = base_w, base_h
+            position = (
+                _calc_center_position(eff_w, eff_h, platen_w, platen_h)
+                if config.AUTO_CENTER else None
             )
 
-            logger.info("  페이지 %d/%d 인쇄 데이터 생성 중 (%s)...", i + 1, len(images), data_ext)
-            rc = create_arx4(
-                xml_path, png_path, arx4_path,
-                position=position,
-                size=size, magnification=magnification, white=config.WHITE_AS,
-                printer_name=printer_name,
-            )
-            if rc != 0:
-                raise RuntimeError(f"인쇄 데이터 생성 실패 (코드: {rc})")
+        logger.info(
+            "  배치 — %s 플레이트 %dx%d, 이미지 %dx%d (0.1mm), 위치 %s, size=%s, mag=%s",
+            platen_label, platen_w, platen_h, eff_w, eff_h,
+            position or config.POSITION, size or "-", magnification or "-",
+        )
+        logger.info("  이미지 — dpi=%s", img_dpi or f"기본값:{config.RENDER_DPI}")
 
-            _extract_arx_diagnostic(
-                extract_data=extract_data,
-                arx_path=arx4_path,
-                page=i,
-                data_ext=data_ext,
-                printer_name=printer_name,
-            )
+        logger.info("  인쇄 데이터 생성 중 (%s)...", data_ext)
+        rc = create_arx4(
+            xml_path, png_path, arx4_path,
+            position=position,
+            size=size, magnification=magnification, white=config.WHITE_AS,
+            printer_name=printer_name,
+        )
+        if rc != 0:
+            raise RuntimeError(f"인쇄 데이터 생성 실패 (코드: {rc})")
 
-            logger.info("  페이지 %d/%d 프린터 전송 중 (%s)...", i + 1, len(images), printer_name)
-            rc = send_to_printer(arx4_path, printer_name)
-            if rc != 0:
-                raise RuntimeError(f"프린터 전송 실패 (코드: {rc})")
+        _extract_arx_diagnostic(
+            extract_data=extract_data,
+            arx_path=arx4_path,
+            page=0,
+            data_ext=data_ext,
+            printer_name=printer_name,
+        )
+
+        logger.info("  프린터 전송 중 (%s)...", printer_name)
+        rc = send_to_printer(arx4_path, printer_name)
+        if rc != 0:
+            raise RuntimeError(f"프린터 전송 실패 (코드: {rc})")
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -284,60 +234,6 @@ def _calc_fit_position(img_w: int, img_h: int, platen_w: int, platen_h: int) -> 
     left = max(0, min(9999, (platen_w - img_w) // 2))
     top = 0
     return f"{left:04d}{top:04d}"
-
-
-def _prepare_for_cli(img: Image.Image, from_pdf: bool) -> Image.Image:
-    """가먼트 CLI 에 넘길 PNG 준비.
-
-    - PDF 래스터화 결과: 흰 배경 평탄화 적용 (_flatten_to_white 참조).
-    - PNG/JPG 원본: 디자이너가 의도한 픽셀을 그대로 보존한다. 색/알파를 손대지 않고,
-      CLI 가 확실히 읽는 RGB/RGBA 로만 모드를 맞춘다(팔레트·그레이스케일 PNG 대비).
-      모드 변환은 픽셀값을 바꾸지 않는 무손실 변환이다.
-    """
-    if from_pdf:
-        return _flatten_to_white(img)
-    if img.mode in ("RGB", "RGBA"):
-        return img
-    return img.convert("RGBA" if "A" in img.mode or img.mode == "P" else "RGB")
-
-
-def _flatten_to_white(img: Image.Image) -> Image.Image:
-    """RGBA 배경을 정확한 RGB(255,255,255)로 합성 (알파 그라데이션 보존).
-
-    가먼트 CLI의 `-W 0`(기본)은 정확한 RGB(255,255,255) 픽셀만 투명으로 해석하므로,
-    안티앨리어싱/렌더 오차로 '거의 흰색'이 된 배경 픽셀이 잉크로 분사되는 것을 막아야 한다.
-    다만 임계값을 128로 잡아 알파를 이진화하면 도안 본체의 반투명 그라데이션까지
-    "흰색 아니면 100% 원색"으로 뭉개진다(알파 0→255 그라데이션이 2색으로 붕괴).
-    그래서 임계는 '거의 투명한 배경 제거'에만 쓰고(ALPHA_CUTOFF), 나머지 구간은
-    실제 알파값으로 정상 합성한다.
-    """
-    if img.mode != "RGBA":
-        return img.convert("RGB")
-    alpha = img.split()[3].point(lambda a: 0 if a < ALPHA_CUTOFF else a)
-    flat = Image.new("RGB", img.size, (255, 255, 255))
-    flat.paste(img.convert("RGB"), mask=alpha)
-    return flat
-
-
-def _non_white_stats(img: Image.Image) -> tuple[int, tuple[int, int, int, int] | None]:
-    """RGB(255,255,255)가 아닌 픽셀 수와 bounding box (진단 로그 전용).
-
-    RGBA 원본은 `convert("RGB")` 로 알파를 버리면 투명 배경의 밑색(보통 검정)까지
-    비-흰색으로 집계되어 수치가 무의미해진다. 측정할 때만 흰 배경에 합성한다.
-    (출력물 자체는 건드리지 않는다 — 이 함수는 로그용 사본만 만든다.)
-    """
-    if img.mode == "RGBA":
-        rgb = Image.alpha_composite(Image.new("RGBA", img.size, (255, 255, 255, 255)), img).convert("RGB")
-    else:
-        rgb = img.convert("RGB")
-    white = Image.new("RGB", rgb.size, (255, 255, 255))
-    diff = ImageChops.difference(rgb, white)
-    bbox = diff.getbbox()
-    if bbox is None:
-        return 0, None
-    mask = diff.convert("L").point(lambda v: 255 if v else 0)
-    count = mask.histogram()[255]
-    return count, bbox
 
 
 def _extract_arx_diagnostic(extract_data, arx_path: str, page: int, data_ext: str, printer_name: str) -> None:
