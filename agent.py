@@ -24,7 +24,7 @@ import config
 from api_client import GarmentApiClient
 from auth import authenticate
 from processor import process_file
-from work_order_builder import WorkOrderJob, build_work_order_pdf
+from work_order_builder import WorkOrderJob, build_work_order_pdf, format_ordered_at
 
 logger = logging.getLogger(__name__)
 
@@ -677,6 +677,9 @@ class AgentWorker:
                         ],
                         design_filename=filename,
                         printer_name=printer_name,
+                        # 구버전 서버는 orderedAt 을 안 내려준다 — 그때는 밴드에서 그 줄만 빠진다
+                        ordered_at=format_ordered_at(wo_meta.get("orderedAt")),
+                        needs_plate_change=bool(job.get("needsPlateChange")),
                     ),
                     wo_pdf,
                 )
