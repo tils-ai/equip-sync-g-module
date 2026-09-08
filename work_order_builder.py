@@ -200,6 +200,22 @@ def _fit(c, text: str, font: str, size: float, max_w: float) -> str:
     return (cut + ell) if cut else ell
 
 
+def _wrap(c, text: str, font: str, size: float, max_w: float) -> list[str]:
+    """어절 단위 줄바꿈. 칸 폭이 좁아지면 줄 수가 늘 뿐 글자가 칸을 넘지 않는다."""
+    lines: list[str] = []
+    current = ""
+    for word in text.split(" "):
+        candidate = f"{current} {word}".strip()
+        if current and c.stringWidth(candidate, font, size) > max_w:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines
+
+
 def _draw_watermark(c, page_w, page_h, pad_x, regular_font, bold_font, left, mid, right):
     """위아래 워터마크.
 
@@ -474,18 +490,27 @@ def _draw_bottom_bar(c, job, info, x, bottom, w, regular_font, bold_font) -> Non
         logger.exception("QR 생성 실패 — QR 생략하고 진행")
 
     text_x = qr_x + qr_size + px(10)
+    # 세트면 오른쪽 절반을 세트 정보가 쓴다. 안내 문구는 남는 폭에 맞춰 접는다 —
+    # 고정 줄바꿈으로 두면 경계선을 넘어 세트 정보 위로 글자가 올라탄다
+    div_x = text_x + px(150)
+    text_w = (div_x - text_x - px(12)) if info["is_set"] else px(240)
+
     c.setFillColorRGB(0, 0, 0)
     c.setFont(bold_font, px(14))
     c.drawString(text_x, bottom + bar_h / 2 + px(14), "작업 상세 QR")
+
     c.setFillColor(HexColor("#555555"))
-    c.setFont(regular_font, px(11))
-    c.drawString(text_x, bottom + bar_h / 2 - px(4), "QR 코드를 스캔하면")
-    c.drawString(text_x, bottom + bar_h / 2 - px(20), "상세 주문 정보를 확인할 수 있습니다.")
+    guide_size = px(10) if info["is_set"] else px(11)
+    c.setFont(regular_font, guide_size)
+    lines = _wrap(c, "QR 코드를 스캔하면 상세 주문 정보를 확인할 수 있습니다.", regular_font, guide_size, text_w)
+    line_y = bottom + bar_h / 2 - px(4)
+    for line in lines[:3]:
+        c.drawString(text_x, line_y, line)
+        line_y -= guide_size + px(4)
 
     if not info["is_set"]:
         return
 
-    div_x = text_x + px(150)
     c.setStrokeColor(HexColor("#cccccc"))
     c.line(div_x, bottom + px(10), div_x, bottom + bar_h - px(10))
 
