@@ -127,6 +127,7 @@ dpi = 300
 
 [poppler]
 ; poppler 바이너리 경로 (비워두면 시스템 PATH 또는 번들)
+; 작업지시서 PDF 를 프린터로 보낼 때만 쓴다. 디자인은 PNG 라 변환하지 않는다
 path =
 
 [api]
@@ -385,6 +386,7 @@ LOG_FILE = _ini.get("log", "file", fallback="").strip() or os.path.join(BASE_DIR
 LOG_LEVEL = _ini.get("log", "level", fallback="INFO").strip().upper()
 
 # --- render ---
+# PNG 이 해상도를 밝히지 않을 때 쓸 기본값 (배치 크기를 실제 치수로 계산하는 데 쓴다)
 RENDER_DPI = _ini.getint("render", "dpi", fallback=300)
 
 # --- poppler ---

@@ -85,9 +85,9 @@ def _make_filename(job: dict) -> str:
     """다운로드 파일명 생성. dps-store getDesignFilename 규칙과 동일."""
     order_number = job.get("orderNumber", "unknown")
     seqno = job.get("wepnpSeqno", "")
-    ext = job.get("designFileType", "PDF").lower()
     idx = int(job.get("itemIndex", 1))
-    return f"{order_number}_{idx:02d}_{seqno}_디자인.{ext}"
+    # 장비로 나가는 것은 PNG 뿐이다. designFileType 에 PDF 가 적혀 오는 건이 있어 그 값은 쓰지 않는다
+    return f"{order_number}_{idx:02d}_{seqno}_디자인.png"
 
 
 def _download_thumbnails(job: dict) -> list[str]:

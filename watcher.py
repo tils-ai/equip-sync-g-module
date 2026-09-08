@@ -21,8 +21,9 @@ class PDFFileHandler(FileSystemEventHandler):
         self._lock = threading.Lock()
 
     def _handle_file(self, file_path: str):
+        # 장비로 나가는 것은 PNG 뿐이다. 다른 형식은 집어도 전송 단계에서 실패한다
         ext = os.path.splitext(file_path)[1].lower()
-        if ext != ".pdf":
+        if ext != ".png":
             return
 
         with self._lock:
