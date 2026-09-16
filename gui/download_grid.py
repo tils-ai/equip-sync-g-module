@@ -119,9 +119,11 @@ class DesignCard(ctk.CTkFrame):
         # 썸네일 박스 (placeholder → 백그라운드 로드 후 교체)
         # 그림 이모지(🖼)를 쓰면 브라우저의 "깨진 이미지" 아이콘과 생김새가 같아,
         # 로딩 중인지 고장인지 작업자가 구분할 수 없다. 글자로 상태를 밝힌다.
+        # done 으로 생성되는 카드는 재시작 복원분뿐이고 그때는 원본이 이미 정리된
+        # 뒤다. 오지 않을 미리보기를 "준비 중"이라 적어두면 계속 거짓말이 된다.
         self._thumb = ctk.CTkLabel(
             self,
-            text="미리보기 준비 중",
+            text="미리보기 없음" if self.status == "done" else "미리보기 준비 중",
             width=_THUMB_PX,
             height=_THUMB_PX,
             fg_color=theme.SURFACE_2,
@@ -247,6 +249,12 @@ class DesignCard(ctk.CTkFrame):
 
     # ── 썸네일 ──
     def _load_thumb_async(self, path: str) -> None:
+        # 완료 항목의 원본은 agent._cleanup_source 가 의도적으로 지운다. 없는 파일을
+        # 굳이 열어보고 실패를 남기면, 정상 동작이 매번 경고로 찍혀 진짜 고장을 덮는다.
+        # 파일이 있는데도 못 여는 경우만 _make_thumb 이 경고를 남긴다.
+        if not path or not os.path.exists(path):
+            return
+
         def worker():
             img = _make_thumb(path, _THUMB_PX)
             if img is None:
