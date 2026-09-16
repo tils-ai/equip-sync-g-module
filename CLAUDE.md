@@ -1,22 +1,18 @@
 # CLAUDE.md — equip-sync-g-module (가먼트 프린터)
 
-이 레포의 설계·운영 문서는 **`dps-store`** 프로젝트에서 통합 관리한다. Claude 세션을 이 레포에서 실행하더라도 아래 문서를 우선 참조하라.
+이 레포의 설계·운영 문서는 **`dps-store`** 프로젝트에서 통합 관리한다. Claude 세션을 이 레포에서 실행하더라도 그쪽 문서를 우선 참조하라.
 
 ## 신규 담당자: 시작 가이드
 
-이 모듈에 합류했다면 아래 순서로 읽으면 작업을 시작할 수 있다. **다른 문서를 무작위로 열지 말고 이 순서대로 시작하라.**
+설계·운영 문서는 `dps-store`(비공개)의 프린터 문서 허브에 모여 있다. 그 허브 인덱스에 **"가먼트 프린터
+신규 담당자"** 섹션이 있고, 읽어야 할 문서가 순서대로 정리돼 있다. **다른 문서를 무작위로 열지 말고
+그 순서를 따르라.**
 
-1. `dps-store/docs/print/README.md` — 전체 인덱스 + "가먼트 프린터 신규 담당자" 섹션
-2. `dps-store/docs/print/20260511-equipment-gui-unification.md` — 3개 모듈 공통 아키텍처 (Watcher+Agent 단일 EXE)
-3. `dps-store/docs/print/20260511-equipment-gui-spec.md` — GUI 공통 규칙·코드 샘플
-4. `dps-store/docs/print/20260318-gtx4-module-design.md` — **본 모듈 메인 설계서** (GTX4CMD 연동, 다중 프린터, 플래튼/잉크 파라미터)
-5. `dps-store/docs/print/20260402-garment-print-api.md` — 서버 API (Jarvis PDF, 자동 출력 큐)
-6. `dps-store/docs/print/20260318-gtx4-source.md` — GTX4CMD.exe 커맨드라인 옵션 레퍼런스
-7. `dps-store/docs/print/20260511-equipment-consistency-audit.md` — l/m 모듈 대비 본 모듈의 격차
+워크스페이스 루트 — 두 레포의 상위 디렉토리 — 에서 세션을 열면 허브가 함께 보인다. 이 레포 단독으로
+세션을 열면 문서가 보이지 않으므로 권장하지 않는다.
 
-추가로 참고:
-- `dps-store/docs/print/20260310-printer-client-api.md` — 서버 측 클라이언트 API 전체 명세 (Device Auth, 큐 상태 전이)
-- `dps-store/CLAUDE.md`의 "관련 외부 레포" 섹션
+> ⚠ **이 레포는 공개(PUBLIC)다.** 문서 목록이나 파일 경로를 이 파일에 옮겨 적지 않는다.
+> 날짜 기반 파일명은 그 자체로 내부 설계 이력을 드러낸다.
 
 ## 대외비 자료 인계 (필수)
 
@@ -27,7 +23,7 @@
 - 신규 담당자는 사내 채널로 별도 인계 받아 `.source/` 폴더에 직접 배치 필요
 - `.history/` 도 동일하게 git 미추적 (IDE 작업 이력)
 
-GTX4CMD 사용법은 `20260318-gtx4-source.md`(분석 결과)와 원본 PDF(`GTX4_Commandline_Ver.2.6.0_E.pdf`) 양쪽을 참조한다.
+GTX4CMD 사용법은 문서 허브의 커맨드라인 옵션 분석 문서와 원본 PDF(`GTX4_Commandline_Ver.2.6.0_E.pdf`) 양쪽을 참조한다.
 
 ## 모듈 개요
 
@@ -100,5 +96,5 @@ equip-sync-g-module/
 ## 서버 측 변경이 필요한 경우
 
 가먼트 출력 큐·API 명세는 `dps-store`에 있으므로 양쪽 동시 변경이 필요할 수 있다. 그 경우:
-- `dps-store/app/api/printer/garment/*` 와 본 모듈의 `agent.py` / `api_client.py` 를 함께 본다
-- API 인터페이스 변경 시 `dps-store/docs/print/20260402-garment-print-api.md` 동기 업데이트
+- 서버의 가먼트 프린터 API 라우트와 본 모듈의 `agent.py` / `api_client.py` 를 함께 본다
+- API 인터페이스 변경 시 문서 허브의 가먼트 API 명세를 동기 업데이트
