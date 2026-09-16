@@ -61,21 +61,26 @@ _STATUS_BG = {
 
 
 def _make_thumb(path: str, size: int):
-    """디자인 파일 첫 페이지를 PIL 썸네일로. 실패 시 None (placeholder 표시)."""
+    """디자인 PNG → PIL 썸네일. 실패 시 None (placeholder 표시).
+
+    예전에는 `processor._load_images` / `_flatten_to_white` 를 빌려 썼는데, 디자인을
+    가공 없이 장비로 넘기게 되면서 그 두 함수가 processor 에서 사라졌다. 이 자리의
+    import 만 남아 ImportError 로 죽었고, 아래 except 가 삼켜 **모든 카드의 썸네일이
+    조용히 안 뜨는** 문제가 됐다. 미리보기는 출력 경로와 무관하므로 여기서 직접 연다.
+    """
     try:
         from PIL import Image
 
-        from processor import _flatten_to_white, _load_images
-
-        images = _load_images(path)
-        if not images:
-            return None
+        with Image.open(path) as src:
+            img = src.convert("RGBA")
         # 투명 배경을 흰색으로 평탄화 — 실제 출력(흰 의류) 기준 미리보기
-        img = _flatten_to_white(images[0])
-        img.thumbnail((size, size), Image.Resampling.LANCZOS)
-        return img
-    except Exception as e:
-        logger.debug("썸네일 생성 실패(%s): %s", os.path.basename(path), e)
+        thumb = Image.new("RGB", img.size, (255, 255, 255))
+        thumb.paste(img, mask=img.split()[-1])
+        thumb.thumbnail((size, size), Image.Resampling.LANCZOS)
+        return thumb
+    except Exception:
+        # debug 로 두면 기본 로그레벨(INFO)에서 한 줄도 안 남아 고장이 드러나지 않는다.
+        logger.warning("썸네일 생성 실패(%s)", os.path.basename(path), exc_info=True)
         return None
 
 
@@ -112,14 +117,16 @@ class DesignCard(ctk.CTkFrame):
         self._has_work_order = bool(getattr(item, "do_work_order", False))
 
         # 썸네일 박스 (placeholder → 백그라운드 로드 후 교체)
+        # 그림 이모지(🖼)를 쓰면 브라우저의 "깨진 이미지" 아이콘과 생김새가 같아,
+        # 로딩 중인지 고장인지 작업자가 구분할 수 없다. 글자로 상태를 밝힌다.
         self._thumb = ctk.CTkLabel(
             self,
-            text="🖼",
+            text="미리보기 준비 중",
             width=_THUMB_PX,
             height=_THUMB_PX,
             fg_color=theme.SURFACE_2,
             corner_radius=theme.CORNER_MD,
-            font=ctk.CTkFont(family=_font_family(), size=30),
+            font=ctk.CTkFont(family=_font_family(), size=theme.FONT_CAPTION),
             text_color=theme.TEXT_MUTED,
         )
         self._thumb.grid(row=0, column=0, padx=theme.SP_2, pady=(theme.SP_2, theme.SP_1), sticky="ew")
