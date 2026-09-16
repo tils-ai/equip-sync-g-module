@@ -60,22 +60,44 @@ _STATUS_BG = {
 }
 
 
+# 알파가 이 값 미만인 픽셀만 '배경'으로 보고 지운다. 128 처럼 크게 잡으면 도안 본체의
+# 반투명 그라데이션까지 "흰색 아니면 원색"으로 뭉개진다.
+_ALPHA_CUTOFF = 8
+
+
+def _flatten_to_white(img):
+    """RGBA 배경을 흰색(255,255,255)으로 합성한다. 알파 그라데이션은 그대로 살린다.
+
+    실제 출력 대상이 흰 의류라, 미리보기도 흰 바탕이어야 작업자가 보는 색이 맞다.
+    """
+    from PIL import Image
+
+    if img.mode != "RGBA":
+        return img.convert("RGB")
+    alpha = img.split()[3].point(lambda a: 0 if a < _ALPHA_CUTOFF else a)
+    flat = Image.new("RGB", img.size, (255, 255, 255))
+    flat.paste(img.convert("RGB"), mask=alpha)
+    return flat
+
+
 def _make_thumb(path: str, size: int):
-    """디자인 파일 첫 페이지를 PIL 썸네일로. 실패 시 None (placeholder 표시)."""
+    """디자인 PNG 를 PIL 썸네일로. 실패 시 None (placeholder 표시).
+
+    장비로 나가는 디자인은 PNG 뿐이므로(`_make_filename` 이 .png 로 고정) PIL 로 직접 연다.
+    출력 파이프라인(processor)에 기대지 않는다 — 예전에는 그쪽 함수를 빌려 썼는데,
+    출력에서 PNG 가공을 걷어낼 때 그 함수들이 함께 사라져 썸네일이 통째로
+    placeholder 로 떨어졌다(v1.14.3). 미리보기는 GUI 가 자립해서 만든다.
+    """
     try:
         from PIL import Image
 
-        from processor import _flatten_to_white, _load_images
-
-        images = _load_images(path)
-        if not images:
-            return None
-        # 투명 배경을 흰색으로 평탄화 — 실제 출력(흰 의류) 기준 미리보기
-        img = _flatten_to_white(images[0])
+        with Image.open(path) as src:
+            img = _flatten_to_white(src.copy())
         img.thumbnail((size, size), Image.Resampling.LANCZOS)
         return img
     except Exception as e:
-        logger.debug("썸네일 생성 실패(%s): %s", os.path.basename(path), e)
+        # debug 로 두면 조용히 사라진다 — v1.14.3 썸네일 장애가 로그에 안 남았던 이유.
+        logger.warning("썸네일 생성 실패(%s): %s", os.path.basename(path), e)
         return None
 
 
