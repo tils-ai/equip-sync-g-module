@@ -1,7 +1,9 @@
 import logging
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 import win32print
@@ -52,6 +54,16 @@ def _ensure_printer_installed(printer_name: str) -> None:
             f"설정된 프린터를 찾을 수 없습니다: '{printer_name}'. "
             f"설치된 프린터 목록: {installed}"
         )
+
+
+def _ansi_codepage() -> str:
+    """시스템 ANSI 코드페이지. poppler 같은 비유니코드 exe 가 인자를 해석하는 기준이다."""
+    try:
+        import ctypes
+
+        return str(ctypes.windll.kernel32.GetACP())
+    except Exception:
+        return "조회 실패"
 
 
 def _poppler_exe(name: str) -> str:
@@ -113,6 +125,33 @@ def log_poppler_once() -> None:
         )
 
 
+def _ascii_safe_pdf(pdf_path: str) -> tuple[str, bool]:
+    """poppler 에 넘길 ASCII 전용 사본을 만든다 → (쓸 경로, 임시본 여부).
+
+    poppler 는 Windows 에서 유니코드 경로에 약하다. 같은 실행파일이 `-v` 는 멀쩡히
+    답하면서 한글이 든 경로를 인자로 주면 종료코드 0 에 출력 0 으로 끝나는 것을
+    현장에서 확인했다(2026-09-17 영등포점). 지시서 파일명에는 `_지시서.pdf` 가
+    늘 들어가므로 변환 직전에 ASCII 경로로 복사해 그 사본을 넘긴다.
+
+    만들지 못하면 원본 경로를 그대로 돌려준다 — 지금보다 나빠지지 않는다.
+    """
+    if pdf_path.isascii():
+        return pdf_path, False
+    try:
+        tmp_dir = tempfile.gettempdir()
+        if not tmp_dir.isascii():
+            logger.warning("임시 폴더 경로에도 비ASCII 문자가 있어 원본 경로를 그대로 쓴다: %s", tmp_dir)
+            return pdf_path, False
+        fd, tmp_path = tempfile.mkstemp(prefix="eqg-wo-", suffix=".pdf", dir=tmp_dir)
+        os.close(fd)
+        shutil.copyfile(pdf_path, tmp_path)
+        logger.info("작업지시서 PDF 를 ASCII 경로로 복사해 변환한다: %s", tmp_path)
+        return tmp_path, True
+    except Exception:
+        logger.exception("ASCII 사본 생성 실패 — 원본 경로로 진행한다")
+        return pdf_path, False
+
+
 def _log_pdf_diagnostics(pdf_path: str) -> None:
     """변환이 끝내 실패했을 때 원인을 좁힐 정보를 남긴다.
 
@@ -127,6 +166,10 @@ def _log_pdf_diagnostics(pdf_path: str) -> None:
         logger.error(
             "  진단 — 파일 존재=%s 크기=%s bytes 읽기가능=%s 경로=%s",
             exists, size, readable, pdf_path,
+        )
+        logger.error(
+            "  진단 — 경로 ASCII=%s / 시스템 ANSI 코드페이지=%s",
+            pdf_path.isascii(), _ansi_codepage(),
         )
         code, out, err = _run_poppler([_poppler_exe("pdfinfo"), pdf_path])
         logger.error("  진단 — pdfinfo 종료코드=%s", code)
@@ -155,29 +198,43 @@ def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
     log_poppler_once()
 
     poppler = getattr(config, "POPPLER_PATH", None)
+    source_pdf, is_temp = _ascii_safe_pdf(pdf_path)
     images = None
     last_error: Exception | None = None
-    for attempt in range(1, _CONVERT_RETRIES + 1):
-        try:
-            images = convert_from_path(
-                pdf_path, dpi=dpi, poppler_path=poppler, use_pdftocairo=True
-            )
-            if attempt > 1:
-                logger.info("작업지시서 PDF 변환 성공 (%d회차)", attempt)
-            break
-        except Exception as e:
-            last_error = e
-            if attempt < _CONVERT_RETRIES:
-                logger.warning(
-                    "작업지시서 PDF 변환 실패 (%d/%d) — %.1f초 뒤 재시도: %s",
-                    attempt, _CONVERT_RETRIES, _CONVERT_RETRY_DELAY, e,
+    try:
+        for attempt in range(1, _CONVERT_RETRIES + 1):
+            try:
+                images = convert_from_path(
+                    source_pdf, dpi=dpi, poppler_path=poppler, use_pdftocairo=True
                 )
-                time.sleep(_CONVERT_RETRY_DELAY)
+                if attempt > 1:
+                    logger.info("작업지시서 PDF 변환 성공 (%d회차)", attempt)
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < _CONVERT_RETRIES:
+                    logger.warning(
+                        "작업지시서 PDF 변환 실패 (%d/%d) — %.1f초 뒤 재시도: %s",
+                        attempt, _CONVERT_RETRIES, _CONVERT_RETRY_DELAY, e,
+                    )
+                    time.sleep(_CONVERT_RETRY_DELAY)
 
-    if images is None:
-        logger.error("작업지시서 PDF 변환이 %d회 모두 실패했습니다: %s", _CONVERT_RETRIES, pdf_path)
-        _log_pdf_diagnostics(pdf_path)
-        raise last_error
+        if images is None:
+            logger.error(
+                "작업지시서 PDF 변환이 %d회 모두 실패했습니다: %s%s",
+                _CONVERT_RETRIES,
+                source_pdf,
+                f" (원본: {pdf_path})" if is_temp else "",
+            )
+            _log_pdf_diagnostics(source_pdf)
+            raise last_error
+    finally:
+        # 변환된 이미지는 메모리에 올라오므로 사본은 여기서 지워도 된다
+        if is_temp:
+            try:
+                os.remove(source_pdf)
+            except OSError:
+                pass
 
     if not images:
         raise RuntimeError(f"PDF에 페이지가 없습니다: {pdf_path}")
