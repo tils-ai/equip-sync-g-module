@@ -649,6 +649,7 @@ class AgentWorker:
         any_error = False
 
         # ── 1. 작업지시서 출력 (지시서 먼저) ──
+        wo_pdf = ""
         if item.do_work_order:
             try:
                 logger.info("작업지시서 PDF 조립: %s", filename)
@@ -693,7 +694,11 @@ class AgentWorker:
                 logger.info("작업지시서 출력 완료: %s", filename)
             except Exception as e:
                 any_error = True
-                logger.exception("작업지시서 출력 실패: %s", filename)
+                # filename 은 디자인 PNG 다. 실제 실패 대상은 지시서 PDF 라 경로를 함께 남긴다 —
+                # 이름이 달라 원인 추적이 한참 헤맸다 (2026-09-17).
+                logger.exception(
+                    "작업지시서 출력 실패: %s (지시서: %s)", filename, wo_pdf or "(생성 전)"
+                )
                 self._report_failed(job_id, "workOrder", str(e))
 
         # ── 2. 가먼트 디자인 출력 (가먼트 나중, quantity번 반복) ──
