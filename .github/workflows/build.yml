@@ -40,6 +40,14 @@ jobs:
           }
           $popplerBin = $pdftoppm.Directory.FullName
           echo "bin=$popplerBin" >> $env:GITHUB_OUTPUT
+          # bin 만 넣으면 인코딩·CJK cMap 이 빠져, pdfinfo -v 는 답하면서 한글 PDF 에는
+          # 종료코드 0 에 출력 0 으로 끝난다. 빠지면 빌드를 세운다 — 조용히 나가면 현장에서 못 찾는다.
+          $popplerShare = Join-Path $pdftoppm.Directory.Parent.FullName "share\poppler"
+          if (-not (Test-Path $popplerShare)) {
+            Write-Error "poppler 데이터 디렉터리를 찾지 못했다: $popplerShare"
+            exit 1
+          }
+          echo "share=$popplerShare" >> $env:GITHUB_OUTPUT
 
       - name: Restore vendor assets
         shell: pwsh
@@ -70,6 +78,7 @@ jobs:
             --collect-all qrcode `
             --collect-submodules gui `
             --add-data "${{ steps.poppler.outputs.bin }};poppler" `
+            --add-data "${{ steps.poppler.outputs.share }};share/poppler" `
             --add-data "assets/fonts;assets/fonts" `
             --add-data ".source;.source" `
             --name equip-sync-g `

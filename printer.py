@@ -66,6 +66,28 @@ def _ansi_codepage() -> str:
         return "조회 실패"
 
 
+def _poppler_datadir() -> str | None:
+    """poppler 데이터 디렉터리(인코딩 테이블·CJK cMap)를 찾는다.
+
+    poppler 는 이 파일들이 있어야 한글 같은 비라틴 텍스트를 다룬다. 없으면
+    `pdfinfo -v` 는 멀쩡히 답하면서 실제 PDF 에는 **종료코드 0 에 출력 0** 으로
+    끝난다(2026-09-17 영등포점에서 확인). 배포본 구조가
+    `Library/bin` + `Library/share/poppler` 라 bin 만 번들하면 이 상태가 된다.
+    """
+    candidates: list[str] = []
+    path = getattr(config, "POPPLER_PATH", None)
+    if path:
+        # <...>/Library/bin → <...>/Library/share/poppler
+        candidates.append(os.path.join(os.path.dirname(path.rstrip("\\/")), "share", "poppler"))
+        candidates.append(os.path.join(path, "share", "poppler"))
+    if getattr(sys, "frozen", False):
+        candidates.append(os.path.join(sys._MEIPASS, "share", "poppler"))
+    for c in candidates:
+        if os.path.isdir(c):
+            return c
+    return None
+
+
 def _poppler_exe(name: str) -> str:
     """poppler 실행파일 경로. POPPLER_PATH 가 없으면 이름만 넘겨 PATH 에 맡긴다."""
     exe = f"{name}.exe" if sys.platform == "win32" else name
@@ -112,6 +134,18 @@ def log_poppler_once() -> None:
     exe = _poppler_exe("pdfinfo")
     logger.info("poppler 경로: %s (출처=%s)", path or "(미지정 — 시스템 PATH)", source)
     logger.info("poppler pdfinfo: %s (존재=%s)", exe, os.path.isfile(exe) if path else "PATH 탐색")
+
+    # 데이터 디렉터리가 없으면 한글 PDF 에서 조용히 실패한다 — 찾으면 환경변수로 알려준다.
+    # os.environ 에 넣어야 pdf2image 의 Popen(env=os.environ.copy()) 에도 함께 전달된다.
+    datadir = _poppler_datadir()
+    if datadir:
+        os.environ["POPPLER_DATADIR"] = datadir
+        logger.info("poppler 데이터 디렉터리: %s", datadir)
+    else:
+        logger.error(
+            "poppler 데이터 디렉터리를 찾지 못했습니다 (share/poppler). "
+            "인코딩·cMap 이 없어 한글이 든 PDF 에서 실패할 수 있습니다."
+        )
 
     code, out, err = _run_poppler([exe, "-v"])
     version = (out or err).strip().splitlines()
