@@ -1,7 +1,11 @@
+import glob
 import logging
 import os
+import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 import win32print
@@ -113,6 +117,45 @@ def log_poppler_once() -> None:
         )
 
 
+def _page_no(path: str) -> int:
+    """pdftocairo 가 붙인 꼬리 번호. page-2 가 page-10 뒤로 가지 않게 숫자로 정렬한다."""
+    m = re.search(r"-(\d+)\.png$", path)
+    return int(m.group(1)) if m else 0
+
+
+def _render_with_pdftocairo(pdf_path: str, dpi: int) -> list[Image.Image]:
+    """pdftocairo 로 PDF 를 PNG 파일로 직접 뽑아 PIL 이미지로 읽는다.
+
+    `pdf2image.convert_from_path` 는 페이지 수를 알아내려고 **pdfinfo 의 stdout 을
+    파싱**하는데, 영등포점에서 그 호출이 종료코드 0 에 출력 0 으로 끝나 변환이
+    시작도 못 했다(2026-09-17). 같은 실행파일을 cmd 에서 부르면 멀쩡해 원인을
+    못 좁혔다.
+
+    pdftocairo 는 결과를 **파일로** 쓰므로 그 구간을 지나가지 않는다.
+    페이지 수도 생성된 파일 개수로 알 수 있어 따로 물어볼 필요가 없다.
+    """
+    out_dir = tempfile.mkdtemp(prefix="eqg-wo-")
+    try:
+        prefix = os.path.join(out_dir, "page")
+        code, out, err = _run_poppler(
+            [_poppler_exe("pdftocairo"), "-png", "-r", str(dpi), pdf_path, prefix],
+            timeout=120,
+        )
+        files = sorted(glob.glob(prefix + "-*.png"), key=_page_no)
+        if not files:
+            raise RuntimeError(
+                f"pdftocairo 가 이미지를 만들지 못했습니다 "
+                f"(종료코드={code}, stdout={out.strip() or '없음'}, stderr={err.strip() or '없음'})"
+            )
+        images = []
+        for f in files:
+            with Image.open(f) as im:
+                images.append(im.copy())
+        return images
+    finally:
+        shutil.rmtree(out_dir, ignore_errors=True)
+
+
 def _log_pdf_diagnostics(pdf_path: str) -> None:
     """변환이 끝내 실패했을 때 원인을 좁힐 정보를 남긴다.
 
@@ -155,6 +198,19 @@ def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
     log_poppler_once()
 
     poppler = getattr(config, "POPPLER_PATH", None)
+
+    # 1차 — pdftocairo 직접. pdfinfo 의 stdout 을 읽지 않아 그 구간을 지나가지 않는다.
+    try:
+        images = _render_with_pdftocairo(pdf_path, dpi)
+        logger.info("작업지시서 렌더: pdftocairo 직접 (%d쪽)", len(images))
+        for i, img in enumerate(images, 1):
+            logger.info("작업지시서 페이지 %d/%d 출력 중 (%s)...", i, len(images), printer_name)
+            print_image(img, printer_name)
+        return
+    except Exception as e:
+        logger.warning("pdftocairo 직접 렌더 실패 — pdf2image 로 폴백: %s", e)
+
+    # 2차 — 기존 경로. 여기서도 실패하면 진단을 남긴다.
     images = None
     last_error: Exception | None = None
     for attempt in range(1, _CONVERT_RETRIES + 1):
