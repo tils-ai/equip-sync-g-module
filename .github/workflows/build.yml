@@ -29,9 +29,22 @@ jobs:
         run: |
           # MSYS2(pacman) keyring 이 러너 이미지에서 깨져 다운로드 실패하므로,
           # 사전 빌드된 poppler-windows 바이너리(자체완결 Library/bin)를 직접 받는다.
-          $ver = "24.08.0-0"
+          # 24.08.0 번들은 영등포점에서 한글 제목이 든 지시서 PDF 를 열지 못했다
+          # (pdfinfo -v 는 답하는데 실제 PDF 에는 종료코드 0 · 출력 0). 같은 PC 에서
+          # 26.09.0 을 손으로 돌리면 정상이라 번들 버전을 올린다. (2026-09-17)
+          $ver = "26.09.0-0"
           $url = "https://github.com/oschwartz10612/poppler-windows/releases/download/v$ver/Release-$ver.zip"
-          Invoke-WebRequest -Uri $url -OutFile poppler.zip
+          # 릴리즈 다운로드가 간헐적으로 HTML 오류 페이지를 돌려줘 빌드가 깨진 적이 있다
+          for ($i = 1; $i -le 3; $i++) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile poppler.zip -ErrorAction Stop
+              if ((Get-Item poppler.zip).Length -gt 1MB) { break }
+              Write-Warning "내려받은 파일이 너무 작다 ($i/3) — 다시 시도"
+            } catch {
+              Write-Warning "poppler 다운로드 실패 ($i/3): $_"
+            }
+            Start-Sleep -Seconds 5
+          }
           Expand-Archive -Path poppler.zip -DestinationPath poppler_dist -Force
           $pdftoppm = Get-ChildItem -Path poppler_dist -Recurse -Filter pdftoppm.exe | Select-Object -First 1
           if (-not $pdftoppm) {
