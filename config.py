@@ -390,14 +390,23 @@ LOG_LEVEL = _ini.get("log", "level", fallback="INFO").strip().upper()
 RENDER_DPI = _ini.getint("render", "dpi", fallback=300)
 
 # --- poppler ---
+# 경로가 어디서 왔는지도 함께 남긴다. 현장에서 "config.ini 를 고쳤는데 먹었나"를
+# 확인할 방법이 없어 원인 추적이 길어진 적이 있다 (2026-09-17 영등포점).
+POPPLER_SOURCE = ""
+
+
 def _resolve_poppler():
+    global POPPLER_SOURCE
     explicit = _ini.get("poppler", "path", fallback="")
     if explicit:
+        POPPLER_SOURCE = "config.ini"
         return explicit
     if getattr(sys, "frozen", False):
         bundled = os.path.join(sys._MEIPASS, "poppler")
         if os.path.isdir(bundled):
+            POPPLER_SOURCE = "번들"
             return bundled
+    POPPLER_SOURCE = "시스템 PATH"
     return None
 
 POPPLER_PATH = _resolve_poppler()

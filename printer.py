@@ -1,5 +1,8 @@
 import logging
+import os
+import subprocess
 import sys
+import time
 
 import win32print
 import win32ui
@@ -8,6 +11,13 @@ from PIL import Image, ImageWin
 import config
 
 logger = logging.getLogger(__name__)
+
+# 갓 만들어진 PDF 를 다른 프로세스가 곧바로 열지 못하는 경우가 있다(백신 실시간 검사 등).
+# 잠깐 뒤에는 읽히는 일이 잦아 짧게 되풀이한다.
+_CONVERT_RETRIES = 10
+_CONVERT_RETRY_DELAY = 0.2
+
+_poppler_logged = False
 
 
 def list_printers() -> list[str]:
@@ -44,6 +54,93 @@ def _ensure_printer_installed(printer_name: str) -> None:
         )
 
 
+def _poppler_exe(name: str) -> str:
+    """poppler 실행파일 경로. POPPLER_PATH 가 없으면 이름만 넘겨 PATH 에 맡긴다."""
+    exe = f"{name}.exe" if sys.platform == "win32" else name
+    poppler = getattr(config, "POPPLER_PATH", None)
+    return os.path.join(poppler, exe) if poppler else exe
+
+
+def _run_poppler(args: list[str], timeout: int = 15) -> tuple[int | None, str, str]:
+    """poppler 보조 실행 → (종료코드, stdout, stderr). 실행 자체가 실패하면 종료코드 None.
+
+    `stdin=DEVNULL` 은 의도적이다 — `--windowed` 로 빌드한 EXE 는 표준입력 핸들이 없어,
+    그대로 물려주면 자식 프로세스가 곧바로 죽는 경우가 있다.
+    """
+    try:
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            timeout=timeout,
+            stdin=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return (
+            proc.returncode,
+            proc.stdout.decode("utf-8", "ignore"),
+            proc.stderr.decode("utf-8", "ignore"),
+        )
+    except Exception as e:
+        return None, "", f"{type(e).__name__}: {e}"
+
+
+def log_poppler_once() -> None:
+    """poppler 위치·버전을 최초 1회 로그에 남긴다.
+
+    작업지시서 출력은 poppler 에 의존하는데 지금까지 로그에 아무 흔적도 없어,
+    설정이 먹었는지조차 현장에 물어봐야 했다.
+    """
+    global _poppler_logged
+    if _poppler_logged:
+        return
+    _poppler_logged = True
+
+    path = getattr(config, "POPPLER_PATH", None)
+    source = getattr(config, "POPPLER_SOURCE", "") or "미상"
+    exe = _poppler_exe("pdfinfo")
+    logger.info("poppler 경로: %s (출처=%s)", path or "(미지정 — 시스템 PATH)", source)
+    logger.info("poppler pdfinfo: %s (존재=%s)", exe, os.path.isfile(exe) if path else "PATH 탐색")
+
+    code, out, err = _run_poppler([exe, "-v"])
+    version = (out or err).strip().splitlines()
+    if code == 0 and version:
+        logger.info("poppler 버전: %s", version[0])
+    else:
+        logger.error(
+            "poppler 실행 확인 실패 — 종료코드=%s stdout=%s stderr=%s. "
+            "작업지시서 출력이 되지 않을 수 있습니다.",
+            code, (out.strip() or "(비어 있음)"), (err.strip() or "(비어 있음)"),
+        )
+
+
+def _log_pdf_diagnostics(pdf_path: str) -> None:
+    """변환이 끝내 실패했을 때 원인을 좁힐 정보를 남긴다.
+
+    pdf2image 는 poppler 의 stderr 를 예외 메시지에 붙이지만 그 출력이 비어 있으면
+    단서가 하나도 남지 않는다. 그래서 같은 pdfinfo 를 직접 한 번 더 돌려
+    종료코드·표준출력·표준오류와 파일 상태를 함께 적는다.
+    """
+    try:
+        exists = os.path.exists(pdf_path)
+        size = os.path.getsize(pdf_path) if exists else -1
+        readable = os.access(pdf_path, os.R_OK) if exists else False
+        logger.error(
+            "  진단 — 파일 존재=%s 크기=%s bytes 읽기가능=%s 경로=%s",
+            exists, size, readable, pdf_path,
+        )
+        code, out, err = _run_poppler([_poppler_exe("pdfinfo"), pdf_path])
+        logger.error("  진단 — pdfinfo 종료코드=%s", code)
+        logger.error("  진단 — pdfinfo stdout: %s", out.strip() or "(비어 있음)")
+        logger.error("  진단 — pdfinfo stderr: %s", err.strip() or "(비어 있음)")
+        if code == 0 and "Pages:" in out:
+            logger.error(
+                "  진단 — 직접 호출은 성공했다. pdf2image 경유만 실패하므로 "
+                "호출 방식(표준입력 핸들 등) 차이를 의심한다."
+            )
+    except Exception:
+        logger.exception("  진단 수집 실패")
+
+
 def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
     """PDF 파일을 일반 Windows 프린터로 출력 (작업지시서용).
 
@@ -55,8 +152,33 @@ def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
     _ensure_printer_installed(printer_name)
     from pdf2image import convert_from_path
 
+    log_poppler_once()
+
     poppler = getattr(config, "POPPLER_PATH", None)
-    images = convert_from_path(pdf_path, dpi=dpi, poppler_path=poppler, use_pdftocairo=True)
+    images = None
+    last_error: Exception | None = None
+    for attempt in range(1, _CONVERT_RETRIES + 1):
+        try:
+            images = convert_from_path(
+                pdf_path, dpi=dpi, poppler_path=poppler, use_pdftocairo=True
+            )
+            if attempt > 1:
+                logger.info("작업지시서 PDF 변환 성공 (%d회차)", attempt)
+            break
+        except Exception as e:
+            last_error = e
+            if attempt < _CONVERT_RETRIES:
+                logger.warning(
+                    "작업지시서 PDF 변환 실패 (%d/%d) — %.1f초 뒤 재시도: %s",
+                    attempt, _CONVERT_RETRIES, _CONVERT_RETRY_DELAY, e,
+                )
+                time.sleep(_CONVERT_RETRY_DELAY)
+
+    if images is None:
+        logger.error("작업지시서 PDF 변환이 %d회 모두 실패했습니다: %s", _CONVERT_RETRIES, pdf_path)
+        _log_pdf_diagnostics(pdf_path)
+        raise last_error
+
     if not images:
         raise RuntimeError(f"PDF에 페이지가 없습니다: {pdf_path}")
     for i, img in enumerate(images, 1):
