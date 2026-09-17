@@ -205,7 +205,7 @@ def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
         logger.info("작업지시서 렌더: pdftocairo 직접 (%d쪽)", len(images))
         for i, img in enumerate(images, 1):
             logger.info("작업지시서 페이지 %d/%d 출력 중 (%s)...", i, len(images), printer_name)
-            print_image(img, printer_name)
+            print_image(img, printer_name, fit_printable=True)
         return
     except Exception as e:
         logger.warning("pdftocairo 직접 렌더 실패 — pdf2image 로 폴백: %s", e)
@@ -239,11 +239,20 @@ def print_pdf_general(pdf_path: str, printer_name: str, dpi: int = 200) -> None:
         raise RuntimeError(f"PDF에 페이지가 없습니다: {pdf_path}")
     for i, img in enumerate(images, 1):
         logger.info("작업지시서 페이지 %d/%d 출력 중 (%s)...", i, len(images), printer_name)
-        print_image(img, printer_name)
+        print_image(img, printer_name, fit_printable=True)
 
 
-def print_image(image: Image.Image, printer_name: str = None):
-    """PIL 이미지를 Windows 프린터로 직접 출력한다."""
+def print_image(image: Image.Image, printer_name: str = None, fit_printable: bool = False):
+    """PIL 이미지를 Windows 프린터로 직접 출력한다.
+
+    `fit_printable=True` 는 **인쇄 가능 영역**(HORZRES/VERTRES)에 맞춰 그리고 가운데 정렬한다.
+    작업지시서(A4 일반 프린터)가 이쪽이다. 용지 전체 크기로 그리면 프린터가 인쇄할 수 없는
+    여백만큼 밀려 위아래가 잘린다 — 여백이 큰 기종일수록 심하다.
+
+    기본값(False)은 용지 전체 크기(PHYSICALWIDTH/HEIGHT) 기준에 좌상단 고정으로,
+    가먼트 direct 출력이 쓰던 **기존 동작 그대로**다. 의류 위 디자인 위치가 달라지면
+    안 되므로 건드리지 않는다.
+    """
     printer_name = printer_name or config.PRINTER_NAME
     _ensure_printer_installed(printer_name)
 
@@ -259,24 +268,36 @@ def print_image(image: Image.Image, printer_name: str = None):
         ) from e
 
     try:
-        pw = hdc.GetDeviceCaps(110)   # PHYSICALWIDTH
-        ph = hdc.GetDeviceCaps(111)   # PHYSICALHEIGHT
+        if fit_printable:
+            area_w = hdc.GetDeviceCaps(8)     # HORZRES  — 인쇄 가능 폭
+            area_h = hdc.GetDeviceCaps(10)    # VERTRES  — 인쇄 가능 높이
+        else:
+            area_w = hdc.GetDeviceCaps(110)   # PHYSICALWIDTH  — 용지 전체
+            area_h = hdc.GetDeviceCaps(111)   # PHYSICALHEIGHT
 
-        # 프린터 너비에 맞춰 비율 유지 스케일링
-        ratio = pw / image.width
-        new_w = pw
+        # 폭에 맞춘 뒤 높이가 넘치면 높이 기준으로 다시 맞춘다 (비율 유지)
+        ratio = area_w / image.width
+        new_w = area_w
         new_h = int(image.height * ratio)
-        if new_h > ph:
-            ratio = ph / image.height
+        if new_h > area_h:
+            ratio = area_h / image.height
             new_w = int(image.width * ratio)
-            new_h = ph
+            new_h = area_h
+
+        # 가운데 정렬은 인쇄 가능 영역 기준일 때만. 기존 경로는 좌상단 고정을 유지한다.
+        off_x = (area_w - new_w) // 2 if fit_printable else 0
+        off_y = (area_h - new_h) // 2 if fit_printable else 0
 
         hdc.StartDoc("GTX4 Print")
         hdc.StartPage()
         dib = ImageWin.Dib(image)
-        dib.draw(hdc.GetHandleOutput(), (0, 0, new_w, new_h))
+        dib.draw(hdc.GetHandleOutput(), (off_x, off_y, off_x + new_w, off_y + new_h))
         hdc.EndPage()
         hdc.EndDoc()
-        logger.info("출력 완료: %dx%d → %dx%d", image.width, image.height, new_w, new_h)
+        logger.info(
+            "출력 완료: %dx%d → %dx%d @(%d,%d) [%s 영역 %dx%d]",
+            image.width, image.height, new_w, new_h, off_x, off_y,
+            "인쇄가능" if fit_printable else "용지전체", area_w, area_h,
+        )
     finally:
         hdc.DeleteDC()
