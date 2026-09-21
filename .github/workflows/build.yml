@@ -41,16 +41,17 @@ jobs:
           $popplerBin = $pdftoppm.Directory.FullName
           echo "bin=$popplerBin" >> $env:GITHUB_OUTPUT
 
+      # 원본 라이브러리 이름은 .lib 의 PE export 에서 읽는다. 주입할 secret 이 없다.
+      # secret DLL_MANIFEST 가 남아 있으면 오버라이드로만 쓰인다(없는 것이 정상).
       - name: Restore vendor assets
         shell: pwsh
         env:
           DLL_MANIFEST: ${{ secrets.DLL_MANIFEST }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:DLL_MANIFEST)) {
-            Write-Error "secret DLL_MANIFEST 가 설정되지 않았습니다 (가명→원본 라이브러리 이름 매핑)."
-            exit 1
+          if (-not [string]::IsNullOrWhiteSpace($env:DLL_MANIFEST)) {
+            Set-Content -Path "vendor/.dll_manifest" -Value $env:DLL_MANIFEST -Encoding UTF8
+            Write-Host "매니페스트 오버라이드 주입됨"
           }
-          Set-Content -Path "vendor/.dll_manifest" -Value $env:DLL_MANIFEST -Encoding UTF8
           python scripts/restore_vendor.py
 
       - name: Build exe
