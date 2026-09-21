@@ -14,16 +14,33 @@
 > ⚠ **이 레포는 공개(PUBLIC)다.** 문서 목록이나 파일 경로를 이 파일에 옮겨 적지 않는다.
 > 날짜 기반 파일명은 그 자체로 내부 설계 이력을 드러낸다.
 
-## 대외비 자료 인계 (필수)
+## 벤더 자산 (신규 담당자)
 
-본 모듈은 **Brother GTX-4 제조사 자료**를 사용한다.
+본 모듈은 제조사 CLI 실행 파일과 API 라이브러리를 사용한다. 계약상 배포는 허가돼 있으나
+**원본 파일명을 공개 레포에 텍스트로 남기지 않는다.**
 
-- `.source/` 폴더의 `GTX4CMD.exe`, `GTX4Api.dll`, 샘플 PDF는 **git 미추적** (`.gitignore` 처리)
-- **릴리즈 EXE에도 포함하지 않는다** (라이선스/유출 방지)
-- 신규 담당자는 사내 채널로 별도 인계 받아 `.source/` 폴더에 직접 배치 필요
-- `.history/` 도 동일하게 git 미추적 (IDE 작업 이력)
+레포에는 가명 바이너리만 추적된다.
 
-GTX4CMD 사용법은 문서 허브의 커맨드라인 옵션 분석 문서와 원본 PDF(`GTX4_Commandline_Ver.2.6.0_E.pdf`) 양쪽을 참조한다.
+```
+vendor/cli_legacy.bin·lib   가명 (추적됨)
+vendor/cli_pro.bin·lib      가명 (추적됨)
+        ↓ scripts/restore_vendor.py
+.source/                    복원 결과 (git 미추적)
+```
+
+**인계받을 것은 없다.** 가명 바이너리가 원본과 바이트 단위로 같은 사본이라, 클론 후
+`python scripts/restore_vendor.py` 한 번이면 `.source/` 가 만들어진다. 실행 파일은 중립
+이름으로, 라이브러리는 **자신의 PE export 이름**으로 복원된다.
+
+- 별도 매핑 파일이나 CI secret 은 필요 없다. `vendor/.dll_manifest` 는 벤더가 export 이름과
+  다른 파일명을 요구할 때만 쓰는 **선택적 오버라이드**이고, 없는 것이 정상이다
+- **릴리즈 EXE 안에는 임베드되지만 설치 폴더에 파일로 드러나지 않는다.**
+  PyInstaller onefile `--add-data ".source;.source"` 로 들어간다
+- 제조사 커맨드라인 가이드 PDF 는 `vendor/` 에 없어 복원되지 않는다. 옵션을 확인할 일이
+  있으면 사내 채널로 별도 요청한다 (코드는 쓰지 않는다)
+- `.history/` 도 git 미추적 (IDE 작업 이력)
+
+CLI 옵션 사용법은 문서 허브의 커맨드라인 옵션 분석 문서를 본다.
 
 ## 모듈 개요
 
@@ -41,7 +58,9 @@ GTX4CMD 사용법은 문서 허브의 커맨드라인 옵션 분석 문서와 �
 ```
 equip-sync-g-module/
 ├── .github/workflows/build.yml    # tag push → 자동 빌드 & Release
-├── .source/                       # ❗대외비 (GTX4CMD.exe 등, git 미추적)
+├── scripts/restore_vendor.py      # vendor/ 가명 → .source/ 원본 이름 복원
+├── vendor/                        # 벤더 자산 가명 바이너리 (추적됨)
+├── .source/                       # vendor/ 복원 결과 — 대외비, git 미추적
 ├── assets/fonts/                  # Pretendard 번들 (**TTF** — reportlab 이 CFF .otf 를 못 읽어 임베딩 실패함)
 ├── gui/                           # 슬라이드 패널, 헤더, 카드, 로그 박스
 │   ├── app.py
@@ -56,8 +75,8 @@ equip-sync-g-module/
 ├── watcher.py                     # 폴더 감시 모드
 ├── processor.py                   # 가먼트 디자인 출력 흐름 (direct / gtx4cmd)
 ├── work_order_builder.py          # 작업지시서 PDF 조립 (reportlab + qrcode, 폰트: 번들 TTF → 맑은 고딕 → CID)
-├── gtx4cmd.py                     # GTX4CMD.exe 래퍼
-├── xml_builder.py                 # GTX4CMD XML 파라미터 빌드
+├── gtx4cmd.py                     # 벤더 CLI 래퍼
+├── xml_builder.py                 # 벤더 CLI XML 파라미터 빌드
 ├── build.bat                      # PyInstaller + --collect-all reportlab/qrcode 포함
 ├── requirements.txt               # reportlab, qrcode 추가
 └── CLAUDE.md
