@@ -275,23 +275,32 @@ class WatcherApp(ctk.CTk):
         if not self._agent.print_ready(item_id, ink):
             logger.info("출력 투입 무시 — 이미 전송 중이거나 없는 항목: %s", item_id)
 
-    def _on_delete_clicked(self, item_id: str, label: str) -> None:
-        """카드 [✕] 클릭 → 확인 모달 → 큐에서 삭제.
+    def _on_delete_clicked(self, item_id: str, label: str, status: str = "ready") -> None:
+        """카드 [✕] 클릭 → 확인 모달 → 목록에서 삭제.
 
         삭제는 서버 호출을 포함하므로 백그라운드 스레드에서 돌린다. 메인 스레드에서
         하면 응답을 기다리는 동안 화면이 멈춘다.
+
+        완료 기록도 지울 수 있다. 출력이 끝난 건까지 쌓이면 목록이 가려 작업자가 지금 눌러야
+        할 카드를 찾기 어렵다.
         """
         if self._agent is None:
             return
 
+        done = status == "done"
         confirmed = ConfirmDialog.ask(
             self,
-            title="디자인 삭제",
-            message="이 디자인을 출력 큐에서 삭제할까요?",
+            title="완료 기록 삭제" if done else "디자인 삭제",
+            message=(
+                "이 완료 기록을 목록에서 지울까요?" if done
+                else "이 디자인을 출력 큐에서 삭제할까요?"
+            ),
             detail=(
                 f"{label}\n\n"
-                "되돌릴 수 없습니다. 잘못 지웠다면 관리자 주문 관리의 "
-                "재출력으로 다시 보낼 수 있습니다."
+                + ("이미 출력된 건입니다. 목록에서만 사라집니다."
+                   if done else
+                   "되돌릴 수 없습니다. 잘못 지웠다면 관리자 주문 관리의 "
+                   "재출력으로 다시 보낼 수 있습니다.")
             ),
         )
         if not confirmed:

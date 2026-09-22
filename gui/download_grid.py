@@ -4,11 +4,11 @@
 상태 탭을 전환한다.
   - 대기(ready): [출력] 클릭으로 장비 전송 (전송 중인 항목도 이 탭에서 표시)
   - 실패(failed): [재시도] 클릭으로 재전송, 실패 사유 표시
-  - 완료(done): 전송완료 이력 (딤 처리, 버튼 없음)
+  - 완료(done): 전송완료 이력 (딤 처리, 출력 버튼 없음 · 삭제는 가능)
 
 카드 우측 상단의 [✕] 는 중복·오생성 디자인을 큐에서 걷어낸다. 예전에는 없애려면
 출력 버튼을 눌러 흘려보내야 했고 그때마다 작업지시서가 같이 인쇄돼 용지가 낭비됐다.
-전송 중(printing)과 완료(done)에서는 숨긴다.
+전송 중(printing)에서만 숨긴다.
 
 설계: dps-store/docs/print/20260609-garment-worker-gated-print.md §5-2,
       dps-store/docs/print/20260611-garment-client-gui-design.md
@@ -109,7 +109,7 @@ class DesignCard(ctk.CTkFrame):
         parent,
         item,
         on_print: Callable[[str], None],
-        on_delete: Callable[[str, str], None],
+        on_delete: Callable[[str, str, str], None],
     ) -> None:
         super().__init__(
             parent,
@@ -285,11 +285,14 @@ class DesignCard(ctk.CTkFrame):
         self._on_print(self.item_id, ink)
 
     def _click_delete(self) -> None:
-        self._on_delete(self.item_id, self._label)
+        self._on_delete(self.item_id, self._label, self.status)
 
     def _set_delete_visible(self, visible: bool) -> None:
-        """전송 중에는 숨긴다 — 전송 결과를 반영할 대상이 사라지면 안 된다.
-        완료 이력에서도 숨긴다 — 걷어낼 대상은 아직 출력하지 않은 건이다."""
+        """전송 중에만 숨긴다.
+
+        전송 중에 지우면 전송 결과를 반영할 대상이 사라진다. 그 외에는 대기·실패·완료 모두
+        지울 수 있다. 완료 기록도 쌓이면 목록을 가리므로 작업자가 직접 치울 수 있어야 한다.
+        """
         if visible:
             self._btn_delete.place(relx=1.0, x=-(theme.SP_2 + 2), y=theme.SP_2 + 2, anchor="ne")
         else:
@@ -306,7 +309,7 @@ class DesignCard(ctk.CTkFrame):
             border_color=_STATUS_BORDER.get(status, theme.BORDER),
             fg_color=_STATUS_BG.get(status, theme.SURFACE),
         )
-        self._set_delete_visible(status in ("ready", "failed"))
+        self._set_delete_visible(status != "printing")
         if status == "ready":
             self._btns.grid()
             self._set_buttons("normal")
@@ -346,7 +349,7 @@ class DownloadGrid(ctk.CTkFrame):
         self,
         parent,
         on_print: Callable[[str], None],
-        on_delete: Callable[[str, str], None],
+        on_delete: Callable[[str, str, str], None],
     ) -> None:
         super().__init__(parent, fg_color="transparent")
         self._on_print = on_print
