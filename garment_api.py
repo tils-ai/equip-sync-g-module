@@ -513,23 +513,43 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
         lines.close()
         return None, list(lines)
 
-    payload = option_json(opt)
-    lines.append(f"  옵션 JSON  : {len(payload)}자")
+    # 이 계열에는 JSON 입구(OpenPrinterJson)가 없다. 5.0.0.19 에도 없었다. 구조체를 받는
+    # OpenPrinter 를 쓴다. 인자 순서는 확정되지 않아 후보를 차례로 시도한다 : 틀리면 오류
+    # 코드가 돌아오거나 프로세스가 죽는데, 이 함수는 자식에서만 돌므로 앱은 살아 있는다.
     handle = ctypes.c_void_p()
     try:
-        opener = getattr(lib, f"{prefix}OpenPrinterJson")
+        opener = getattr(lib, f"{prefix}OpenPrinter")
         opener.restype = ctypes.c_int32
-        rc = opener(ctypes.byref(handle), ctypes.c_wchar_p(printer_name),
-                    ctypes.c_wchar_p(payload))
     except AttributeError:
-        lines.append("  OpenPrinterJson 함수가 없습니다.")
+        lines.append("  OpenPrinter 함수가 없습니다.")
         lines.close()
         return None, list(lines)
-    except Exception as e:
-        lines.append(f"  OpenPrinterJson 호출 실패: {e}")
+
+    optbuf = _as_buffer(opt)
+    shapes = (
+        ("핸들*, 프린터, 옵션*", lambda: opener(ctypes.byref(handle),
+                                            ctypes.c_wchar_p(printer_name),
+                                            ctypes.byref(optbuf))),
+        ("프린터, 옵션*, 핸들*", lambda: opener(ctypes.c_wchar_p(printer_name),
+                                            ctypes.byref(optbuf),
+                                            ctypes.byref(handle))),
+        ("핸들*, 프린터", lambda: opener(ctypes.byref(handle),
+                                     ctypes.c_wchar_p(printer_name))),
+    )
+    rc = None
+    for label, call in shapes:
+        try:
+            rc = call()
+        except Exception as e:
+            lines.append(f"  open({label}) 호출 실패: {e}")
+            continue
+        lines.append(f"  open({label}): {rc}")
+        if rc == 0:
+            break
+    if rc != 0:
+        lines.append("  → 프린터를 열지 못했습니다.")
         lines.close()
-        return None, list(lines)
-    lines.append(f"  open       : {rc}")
+        return rc, list(lines)
     if rc < 0:
         lines.close()
         return rc, list(lines)
