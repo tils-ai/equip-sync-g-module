@@ -460,6 +460,11 @@ OPTION_JSON_FIELDS = (
 
 BAND_HEIGHT = 300  # 편집기와 같은 밴드 높이
 
+# 알파를 "투명색"으로 옮길 때 쓰는 키 컬러. 디자인에 거의 안 쓰이는 순수 마젠타를 쓴다.
+# COLORREF 는 R + G*256 + B*65536 (가이드 예시 RGB(161,77,215) = 14110113 로 검증).
+TRANSPARENT_KEY_RGB = (255, 0, 255)
+TRANSPARENT_KEY_COLORREF = 255 + 0 * 256 + 255 * 65536
+
 
 def option_json(opt: ctypes.Structure) -> str:
     """구조체 값을 편집기가 쓰는 JSON 형태로 옮긴다."""
@@ -689,25 +694,37 @@ def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
         with Image.open(png_path) as img:
             has_dpi = bool(img.info.get("dpi"))
             has_alpha = img.mode in ("RGBA", "LA") or "transparency" in img.info
-            flatten = False  # 알파는 어떤 경우에도 눕히지 않는다
-            if has_dpi and not flatten:
+            if has_dpi and not has_alpha:
                 lines.append(f"  이미지 보정: 불필요 (dpi={img.info.get('dpi')}, 알파={has_alpha})")
                 return png_path
             prepared = img.convert("RGBA") if has_alpha else img.convert("RGB")
-            if flatten:
-                canvas = Image.new("RGB", prepared.size, (255, 255, 255))
-                canvas.paste(prepared, mask=prepared.split()[-1])
-                prepared = canvas
+            if has_alpha:
+                # 파일 경로는 라이브러리가 PNG 를 직접 읽으며 알파를 버린다. 대신 가이드가
+                # 정의한 "투명색"을 쓴다 : 완전 투명한 픽셀만 키 컬러로 칠하고, 그 색을
+                # 투명색으로 지정하면 잉크가 나가지 않는다. 화이트 잉크 밑판도 안 생긴다.
+                #
+                # 반투명 픽셀은 색을 섞지 않고 원래 색 그대로 둔다. 키 컬러와 섞으면 가장자리에
+                # 그 색 테두리가 생긴다.
+                alpha = prepared.getchannel("A")
+                rgb = prepared.convert("RGB")
+                key = Image.new("RGB", prepared.size, TRANSPARENT_KEY_RGB)
+                mask = alpha.point(lambda v: 255 if v == 0 else 0)
+                rgb.paste(key, mask=mask)
+                prepared = rgb
+                opt.bTransColor = 1
+                opt.colorTrans = TRANSPARENT_KEY_COLORREF
+                opt.byTolerance = 0
+                lines.append(
+                    f"  투명색 지정: 완전 투명 픽셀을 RGB{TRANSPARENT_KEY_RGB} 로 칠하고 "
+                    f"colorTrans={TRANSPARENT_KEY_COLORREF} 로 지정"
+                )
             out = os.path.join(os.path.dirname(os.path.abspath(png_path)), "prepared.png")
             prepared.save(out, dpi=(dpi, dpi))
     except (OSError, ValueError) as e:
         lines.append(f"  이미지 보정 실패: {e} (원본 그대로 사용)")
         return png_path
 
-    lines.append(
-        f"  이미지 보정: dpi={dpi} 기입 (알파 보존)"
-        + (", 설정에 따라 알파를 흰색으로 눕힘" if flatten else "")
-    )
+    lines.append(f"  이미지 보정: dpi={dpi} 기입")
     return out
 
 
