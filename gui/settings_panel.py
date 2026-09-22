@@ -525,16 +525,25 @@ class SettingsPanel(ctk.CTkFrame):
         current_cli = next((opt for opt in cli_opts if opt.startswith(config.GTX_CLI + ":")), cli_opts[0])
         self._gtx_cli = self._combo(parent, "장비 계열", cli_opts, current_cli, 1)
 
+        # 드라이버를 올린 PC 는 설치된 라이브러리가 세대가 맞는다. 기본 auto 는 임베드본으로
+        # 먼저 시도하고, 드라이버 매칭에 실패할 때만 설치본으로 넘어간다.
+        api_opts = ["auto: 자동", "embedded: 임베드본", "installed: 설치본"]
+        current_api = next((o for o in api_opts if o.startswith(config.GARMENT_API_DLL + ":")), None)
+        if current_api is None:  # 경로로 고정해 둔 경우 — 그 값을 지우지 않는다
+            current_api = f"{config.GARMENT_API_DLL}: 지정 경로"
+            api_opts = api_opts + [current_api]
+        self._api_dll = self._combo(parent, "API 라이브러리", api_opts, current_api, 2)
+
         platen_opts = ["0: 16x21", "1: 16x18", "2: 14x16", "3: 10x12", "4: 7x8"]
         current_platen = platen_opts[config.PLATEN_SIZE] if config.PLATEN_SIZE < len(platen_opts) else platen_opts[0]
-        self._platen_size = self._combo(parent, "플래튼", platen_opts, current_platen, 2)
+        self._platen_size = self._combo(parent, "플래튼", platen_opts, current_platen, 3)
 
         ink_opts = ["0: Color", "1: White", "2: Color+White", "3: Black"]
         current_ink = ink_opts[config.INK] if config.INK < len(ink_opts) else ink_opts[0]
-        self._ink = self._combo(parent, "잉크", ink_opts, current_ink, 3)
+        self._ink = self._combo(parent, "잉크", ink_opts, current_ink, 4)
 
-        self._copies = self._entry(parent, "매수", str(config.COPIES), 4)
-        self._position = self._entry(parent, "위치(8자리)", config.POSITION, 5)
+        self._copies = self._entry(parent, "매수", str(config.COPIES), 5)
+        self._position = self._entry(parent, "위치(8자리)", config.POSITION, 6)
 
         # 고급 설정 — 버튼을 누르면 하단에 모든 가먼트 CLI 파라미터를 펼쳐 세부 조정 (GraphicsLab 식)
         self._advanced_visible = False
@@ -548,10 +557,10 @@ class SettingsPanel(ctk.CTkFrame):
             text_color=theme.TEXT,
             command=self._toggle_advanced,
         )
-        self._advanced_btn.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        self._advanced_btn.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
         self._advanced_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        self._advanced_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(6, 0))
+        self._advanced_frame.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(6, 0))
         self._build_advanced(self._advanced_frame)
         self._advanced_frame.grid_remove()
 
@@ -686,6 +695,8 @@ class SettingsPanel(ctk.CTkFrame):
             config.save_value("download", "dir", self._download_dir.get())
 
             config.save_value("garment_cli", "gtx_cli", self._gtx_cli.get().split(":")[0])
+            # 경로 고정값에는 ":" 가 들어가므로 라벨 구분자(": ")로만 자른다.
+            config.save_value("garment_cli", "api_dll", self._api_dll.get().rsplit(": ", 1)[0])
             config.save_value("garment_cli", "platen_size", self._platen_size.get().split(":")[0])
             config.save_value("garment_cli", "ink", self._ink.get().split(":")[0])
             config.save_value("garment_cli", "copies", self._copies.get())

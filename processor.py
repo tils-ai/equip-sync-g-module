@@ -99,6 +99,7 @@ def _print_via_cli(
     from garment_cli import (
         create_arx4,
         describe_cli_selection,
+        describe_versions,
         extract_data,
         preferred_data_extension,
         printer_driver_summary,
@@ -110,6 +111,8 @@ def _print_via_cli(
     try:
         logger.info("  가먼트 실행 설정: %s", describe_cli_selection(printer_name))
         logger.info("  가먼트 프린터 드라이버: %s", printer_driver_summary(printer_name))
+        # CLI·API·드라이버 세 버전의 조합이 현장 성패를 가른다. 실패 후 추리하지 않도록 매번 남긴다.
+        logger.info("  가먼트 버전 조합: %s", describe_versions(printer_name))
 
         # 플레이트 선택: 아동(플레이트 교체) → 10x12, 성인(기본) → 14x16
         platen_idx = config.PLATEN_CHILD if needs_plate_change else config.PLATEN_ADULT
