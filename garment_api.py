@@ -444,6 +444,56 @@ PRINTFILE_VARIANTS = {
 }
 
 
+def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
+    """라이브러리에 넘기기 전 이미지를 다듬는다. 원본은 건드리지 않는다.
+
+    두 가지를 맞춘다.
+
+    1. **DPI 를 박는다.** 디자인 PNG 에는 DPI 정보가 없다. 그러면 라이브러리가 자기 기준으로
+       해석해 실제 크기가 어긋난다(현장에서 가로세로 절반, 면적 1/4 로 나왔다). CLI 경로는
+       절대 크기(-S)로 넘겨 이 문제를 피했는데, 직접 호출에서는 RECT 만으로는 부족했다.
+    2. **컬러 전용일 때 알파를 흰색으로 눕힌다.** PrintFile 경로는 알파를 무시해 투명 배경이
+       그대로 찍힌다. 컬러 전용(byInk=0)에서는 흰색이 "잉크 없음"이므로 눕혀도 결과가 같고,
+       무시되는 것보다 안전하다. 화이트 잉크를 쓰는 조합(byInk=1·2)은 알파에서 화이트 밑판을
+       만들므로 **절대 눕히지 않는다** : 눕히면 이미지 전체에 흰 판이 깔린다.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        lines.append("  이미지 보정: PIL 없음, 원본 그대로 사용")
+        return png_path
+
+    flatten_mode = str(getattr(config, "API_FLATTEN_ALPHA", "auto")).lower()
+    dpi = int(getattr(config, "RENDER_DPI", 300) or 300)
+    try:
+        with Image.open(png_path) as img:
+            has_dpi = bool(img.info.get("dpi"))
+            has_alpha = img.mode in ("RGBA", "LA") or "transparency" in img.info
+            flatten = has_alpha and (
+                flatten_mode == "always"
+                or (flatten_mode == "auto" and int(opt.byInk) == 0)
+            )
+            if has_dpi and not flatten:
+                lines.append(f"  이미지 보정: 불필요 (dpi={img.info.get('dpi')}, 알파={has_alpha})")
+                return png_path
+            prepared = img.convert("RGBA") if has_alpha else img.convert("RGB")
+            if flatten:
+                canvas = Image.new("RGB", prepared.size, (255, 255, 255))
+                canvas.paste(prepared, mask=prepared.split()[-1])
+                prepared = canvas
+            out = os.path.join(os.path.dirname(os.path.abspath(png_path)), "prepared.png")
+            prepared.save(out, dpi=(dpi, dpi))
+    except (OSError, ValueError) as e:
+        lines.append(f"  이미지 보정 실패: {e} (원본 그대로 사용)")
+        return png_path
+
+    lines.append(
+        f"  이미지 보정: dpi={dpi} 기입"
+        + (", 알파를 흰색으로 눕힘(컬러 전용)" if flatten else "")
+    )
+    return out
+
+
 def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro",
               position: str = "", size: str = "", overrides: dict = None,
               variant: int = 0, printer_name: str = "") -> tuple:
@@ -523,6 +573,7 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
     rect = RECT(left, top, left + width, top + height)
     lines.append(f"  RECT       : ({rect.left}, {rect.top}, {rect.right}, {rect.bottom}) 0.1mm")
 
+    png_path = _prepare_image(png_path, opt, lines)
     lines.append(f"  호출 모양  : variant {variant} : {PRINTFILE_VARIANTS.get(variant, '?')}")
     try:
         fn = getattr(lib, f"{prefix}PrintFile")

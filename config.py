@@ -408,6 +408,8 @@ def _resolve_backend() -> str:
 
 
 GARMENT_BACKEND = _resolve_backend()
+# 직접 호출에서 알파를 흰색으로 눕힐지: auto(컬러 전용일 때만) / always / never
+API_FLATTEN_ALPHA = _ini.get("garment_cli", "api_flatten_alpha", fallback="auto").strip().lower()
 
 # 드라이버 세대에 맞는 API 라이브러리를 고르기 위한 설정·상태.
 GARMENT_API_DLL = _resolve_api_dll_mode()
