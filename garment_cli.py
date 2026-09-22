@@ -873,6 +873,8 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
         )
 
     printer = printer_name or config.PRINTER_NAME
+    if str(getattr(config, "API_IMAGE_PATH", "file")).lower() == "rgba":
+        return _rgba_isolated(image_path, out_path, printer, model, overrides)
     variants = _printfile_variants()
     collected = []
     for index, variant in enumerate(variants):
@@ -902,6 +904,20 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
             collected.append(f"  → 호출 모양 {variant} 에서 프로세스가 죽었습니다. 다음 모양으로 시도합니다.")
     _clear_printfile_variant()
     return None, collected
+
+
+def _rgba_isolated(image_path: str, out_path: str, printer: str, model: str, overrides: dict) -> tuple:
+    """알파를 살리는 경로. 편집기와 같은 방식으로 픽셀을 직접 넘긴다."""
+    if not getattr(sys, "frozen", False):
+        return garment_api.rgba_print(image_path, out_path, printer, model=model, overrides=overrides)
+    cmd = [sys.executable, "--api-rgba", image_path, out_path, printer,
+           "--model", model, "--opt", json.dumps(overrides or {})]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=600,
+                                stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)
+    except subprocess.TimeoutExpired:
+        return None, ["  RGBA 경로 시간 초과(600초)"]
+    return _parse_child(result)
 
 
 def _send_isolated(data_path: str, printer: str, model: str):

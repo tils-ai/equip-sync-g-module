@@ -445,6 +445,142 @@ PRINTFILE_VARIANTS = {
 }
 
 
+# 벤더 편집기가 쓰는 경로. PrintFile 은 파일을 라이브러리가 직접 읽어 알파를 버리지만,
+# 이 경로는 우리가 픽셀을 알파째 밀어 넣는다. 투명 배경을 살리려면 이쪽이어야 한다.
+#   open(프린터, 옵션JSON) -> processImageRGBA(w, h, RGBA, y, 흰색변환) -> close()
+# 옵션을 JSON 으로 넘기므로 구조체 배치(packed) 문제도 함께 비껴간다.
+OPTION_JSON_FIELDS = (
+    "szFileName", "uiCopies", "szJobName", "byPrintMethod", "byPlatenSize", "byInk",
+    "byResolution", "bEcoMode", "byQuality", "byInkVolume", "byDoublePrint", "byHighlight",
+    "byMask", "bFastMode", "bDivide", "byDivideSpan", "bPause", "byPauseSpan",
+    "bMaterialBlack", "bMultiple", "bTransColor", "colorTrans", "byTolerance", "byMinWhite",
+    "byChoke", "bySaturation", "byBrightness", "byContrast", "iCyanBalance", "iMagentaBalance",
+    "iYellowBalance", "iBlackBalance", "bUniDirection", "byTransLayer",
+)
+
+BAND_HEIGHT = 300  # 편집기와 같은 밴드 높이
+
+
+def option_json(opt: ctypes.Structure) -> str:
+    """구조체 값을 편집기가 쓰는 JSON 형태로 옮긴다."""
+    import json
+
+    data = {}
+    for name in OPTION_JSON_FIELDS:
+        if not hasattr(opt, name):
+            continue
+        value = getattr(opt, name)
+        data[name] = value.decode("utf-8", "replace") if isinstance(value, bytes) else int(value)
+    data["szTransFile"] = ""
+    data["uiReserved1"] = 0
+    data["uiReserved2"] = 0
+    data["uiReserved3"] = 0
+    data["uiReserved4"] = 0
+    return json.dumps(data)
+
+
+def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "",
+               model: str = "pro", overrides: dict = None, white_convert: int = 0) -> tuple:
+    """알파를 살려 출력한다. 우리가 픽셀을 직접 넘기는 경로."""
+    lines = _Trace()
+    exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
+    api_dll = api_dll or _pick_api(exe)
+    if not api_dll:
+        lines.append("API 라이브러리를 찾지 못했습니다.")
+        lines.close()
+        return None, list(lines)
+    prefix = garment_runtime.driver_file_prefix(api_dll)
+    option_type = option_type_for(api_dll, model)
+    opt = sample_option(option_type, overrides)
+    opt.szFileName = os.path.abspath(out_path).encode("utf-8", "ignore")[:MAX_PATH - 1]
+    opt.szJobName = b"direct-call"
+
+    lines.append(f"  라이브러리 : {garment_runtime.describe_file(api_dll)}")
+    lines.append(f"  경로       : RGBA (알파 보존)")
+    try:
+        from PIL import Image
+    except ImportError:
+        lines.append("  PIL 이 없어 RGBA 경로를 쓸 수 없습니다.")
+        lines.close()
+        return None, list(lines)
+    try:
+        lib = _load(api_dll)
+    except OSError as e:
+        lines.append(f"  로드 실패   : {e}")
+        lines.close()
+        return None, list(lines)
+
+    payload = option_json(opt)
+    lines.append(f"  옵션 JSON  : {len(payload)}자")
+    handle = ctypes.c_void_p()
+    try:
+        opener = getattr(lib, f"{prefix}OpenPrinterJson")
+        opener.restype = ctypes.c_int32
+        rc = opener(ctypes.byref(handle), ctypes.c_wchar_p(printer_name),
+                    ctypes.c_wchar_p(payload))
+    except AttributeError:
+        lines.append("  OpenPrinterJson 함수가 없습니다.")
+        lines.close()
+        return None, list(lines)
+    except Exception as e:
+        lines.append(f"  OpenPrinterJson 호출 실패: {e}")
+        lines.close()
+        return None, list(lines)
+    lines.append(f"  open       : {rc}")
+    if rc < 0:
+        lines.close()
+        return rc, list(lines)
+
+    try:
+        process = getattr(lib, f"{prefix}ProcessImage_RGBA")
+    except AttributeError:
+        try:
+            process = getattr(lib, f"{prefix}ProcessImageRGBA")
+        except AttributeError:
+            lines.append("  ProcessImage_RGBA 함수가 없습니다.")
+            lines.close()
+            return None, list(lines)
+    process.restype = ctypes.c_int32
+
+    rc = 0
+    try:
+        with Image.open(png_path) as img:
+            rgba = img.convert("RGBA")
+        width, height = rgba.size
+        lines.append(f"  이미지     : {width}x{height} RGBA, 밴드 {BAND_HEIGHT}행")
+        raw = rgba.tobytes()
+        stride = width * 4
+        for top in range(0, height, BAND_HEIGHT):
+            rows = min(BAND_HEIGHT, height - top)
+            chunk = raw[top * stride:(top + rows) * stride]
+            buf = ctypes.create_string_buffer(chunk, len(chunk))
+            rc = process(ctypes.c_int32(width), ctypes.c_int32(rows), buf,
+                         ctypes.c_int32(top), ctypes.c_int32(white_convert))
+            if rc != 0:
+                lines.append(f"  processImageRGBA(y={top}): {rc}")
+                break
+    except Exception as e:
+        lines.append(f"  이미지 전달 실패: {e}")
+        rc = None
+
+    try:
+        closer = getattr(lib, f"{prefix}ClosePrinter")
+        closer.restype = ctypes.c_int32
+        crc = closer()
+        lines.append(f"  close      : {crc}")
+        if rc == 0 and crc != 0:
+            rc = crc
+    except Exception as e:
+        lines.append(f"  close 실패: {e}")
+
+    if os.path.isfile(out_path):
+        lines.append(f"  생성 결과  : {os.path.getsize(out_path):,} bytes")
+    else:
+        lines.append("  생성 결과  : 파일 없음 (장비로 직접 나갔을 수 있음)")
+    lines.close()
+    return rc, list(lines)
+
+
 def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
     """라이브러리에 넘기기 전 이미지를 다듬는다. 원본은 건드리지 않는다.
 

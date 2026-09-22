@@ -140,6 +140,34 @@ def main():
             print(line)
             log.info("%s", line)
         raise SystemExit(0)
+    if "--api-rgba" in sys.argv:
+        import garment_api
+
+        i = sys.argv.index("--api-rgba")
+        rest = [a for a in sys.argv[i + 1:] if not a.startswith("--")]
+        if len(rest) < 3:
+            print("사용법: --api-rgba <png> <출력> <프린터> [--opt <json>] [--model pro]")
+            raise SystemExit(2)
+
+        def _rflag(name: str) -> str:
+            return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else ""
+
+        try:
+            import ctypes
+
+            ctypes.windll.kernel32.SetErrorMode(0x0002 | 0x0001 | 0x8000)
+        except (AttributeError, OSError):
+            pass
+        import json as _json
+
+        overrides = _json.loads(_rflag("--opt") or "{}")
+        rc, lines = garment_api.rgba_print(
+            rest[0], rest[1], rest[2], model=_rflag("--model") or "pro", overrides=overrides,
+        )
+        for line in lines:
+            print(line)
+        print(f"RC={rc}")
+        _hard_exit(0 if rc == 0 else 1)
     if "--api-send" in sys.argv:
         import garment_api
 

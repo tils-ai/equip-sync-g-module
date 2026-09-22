@@ -418,6 +418,9 @@ try:
     API_RECT_DPI = _ini.getint("garment_cli", "api_rect_dpi", fallback=600)
 except ValueError:
     API_RECT_DPI = 600
+# 이미지 전달 방식: file(라이브러리가 파일을 직접 읽음, 알파 버려짐) / rgba(우리가 픽셀을
+# 알파째 넘김, 편집기와 같은 경로). 투명 배경이 필요하면 rgba.
+API_IMAGE_PATH = _ini.get("garment_cli", "api_image_path", fallback="file").strip().lower()
 # 투명 처리(byTransLayer). 0 으로 넘겼더니 알파가 흰색으로 찍혔다. CLI 의 -W 0(흰색을
 # 투명색으로 해석)에 해당하는 자리로 보고 1 을 기본으로 둔다. 어긋나면 0 으로 되돌린다.
 try:
