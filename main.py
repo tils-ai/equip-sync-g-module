@@ -163,6 +163,7 @@ def main():
         overrides = _json.loads(_rflag("--opt") or "{}")
         rc, lines = garment_api.rgba_print(
             rest[0], rest[1], rest[2], model=_rflag("--model") or "pro", overrides=overrides,
+            position=_rflag("--position"), size=_rflag("--size"),
         )
         for line in lines:
             print(line)

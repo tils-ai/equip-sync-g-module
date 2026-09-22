@@ -878,7 +878,8 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
 
     printer = printer_name or config.PRINTER_NAME
     if str(getattr(config, "API_IMAGE_PATH", "rgba")).lower() == "rgba":
-        rc, lines = _rgba_isolated(image_path, out_path, printer, model, overrides)
+        rc, lines = _rgba_isolated(image_path, out_path, printer, model, overrides,
+                                   position or config.POSITION, size or "")
         for line in lines:
             logger.info("%s", line)
         if rc == 0:
@@ -917,12 +918,15 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
     return None, collected
 
 
-def _rgba_isolated(image_path: str, out_path: str, printer: str, model: str, overrides: dict) -> tuple:
+def _rgba_isolated(image_path: str, out_path: str, printer: str, model: str, overrides: dict,
+                   position: str = "", size: str = "") -> tuple:
     """알파를 살리는 경로. 편집기와 같은 방식으로 픽셀을 직접 넘긴다."""
     if not getattr(sys, "frozen", False):
-        return garment_api.rgba_print(image_path, out_path, printer, model=model, overrides=overrides)
+        return garment_api.rgba_print(image_path, out_path, printer, model=model,
+                                      overrides=overrides, position=position, size=size)
     cmd = [sys.executable, "--api-rgba", image_path, out_path, printer,
-           "--model", model, "--opt", json.dumps(overrides or {})]
+           "--model", model, "--position", position, "--size", size,
+           "--opt", json.dumps(overrides or {})]
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=600,
                                 stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW)

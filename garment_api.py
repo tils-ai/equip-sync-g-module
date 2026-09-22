@@ -480,7 +480,8 @@ def option_json(opt: ctypes.Structure) -> str:
 
 
 def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "",
-               model: str = "pro", overrides: dict = None, white_convert: int = 0) -> tuple:
+               model: str = "pro", overrides: dict = None, white_convert: int = 0,
+               position: str = "", size: str = "") -> tuple:
     """알파를 살려 출력한다. 우리가 픽셀을 직접 넘기는 경로."""
     lines = _Trace()
     exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
@@ -495,6 +496,8 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
     opt.szFileName = os.path.abspath(out_path).encode("utf-8", "ignore")[:MAX_PATH - 1]
     opt.szJobName = b"direct-call"
 
+    pos_x10, pos_y10 = _parse_pos(position or getattr(config, "POSITION", "00000000"))
+    size_w10, size_h10 = _parse_pos(size or getattr(config, "SIZE", "") or "00000000")
     lines.append(f"  라이브러리 : {garment_runtime.describe_file(api_dll)}")
     lines.append(f"  경로       : RGBA (알파 보존)")
     try:
@@ -544,20 +547,40 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
 
     rc = 0
     try:
+        # 이 경로에는 RECT 가 없다. 크기와 위치는 **픽셀 자체**가 정한다. 그래서 장비 좌표계
+        # 해상도(600dpi)로 키운 뒤, 플래튼 폭만큼의 캔버스에 지정 위치로 붙여 넘긴다.
+        # 원본 300dpi 를 그대로 넣으면 좌표계가 절반이라 또 반으로 찍힌다.
+        dots_dpi = int(getattr(config, "API_RECT_DPI", 600) or 600)
+        to_dots = lambda v: int(round(v * dots_dpi / 254.0))  # noqa: E731
+        plate_w10, plate_h10 = getattr(config, "PLATEN_DIMS", {}).get(
+            int(opt.byPlatenSize), (3556, 4064)
+        )
+        target_w, target_h = to_dots(size_w10), to_dots(size_h10)
+        left, top0 = to_dots(pos_x10), to_dots(pos_y10)
+        canvas_w, canvas_h = to_dots(plate_w10), to_dots(plate_h10)
+
         with Image.open(png_path) as img:
-            rgba = img.convert("RGBA")
-        width, height = rgba.size
-        lines.append(f"  이미지     : {width}x{height} RGBA, 밴드 {BAND_HEIGHT}행")
-        raw = rgba.tobytes()
-        stride = width * 4
-        for top in range(0, height, BAND_HEIGHT):
-            rows = min(BAND_HEIGHT, height - top)
-            chunk = raw[top * stride:(top + rows) * stride]
+            art = img.convert("RGBA")
+        if (target_w, target_h) != art.size and target_w > 0 and target_h > 0:
+            art = art.resize((target_w, target_h), Image.LANCZOS)
+        canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+        canvas.paste(art, (left, top0))
+        lines.append(
+            f"  이미지     : 원본 -> {target_w}x{target_h} 도트, "
+            f"플래튼 캔버스 {canvas_w}x{canvas_h} @{dots_dpi}dpi, 위치 ({left}, {top0})"
+        )
+
+        raw = canvas.tobytes()
+        stride = canvas_w * 4
+        lines.append(f"  밴드       : {BAND_HEIGHT}행씩 {-(-canvas_h // BAND_HEIGHT)}회")
+        for band_top in range(0, canvas_h, BAND_HEIGHT):
+            rows = min(BAND_HEIGHT, canvas_h - band_top)
+            chunk = raw[band_top * stride:(band_top + rows) * stride]
             buf = ctypes.create_string_buffer(chunk, len(chunk))
-            rc = process(ctypes.c_int32(width), ctypes.c_int32(rows), buf,
-                         ctypes.c_int32(top), ctypes.c_int32(white_convert))
+            rc = process(ctypes.c_int32(canvas_w), ctypes.c_int32(rows), buf,
+                         ctypes.c_int32(band_top), ctypes.c_int32(white_convert))
             if rc != 0:
-                lines.append(f"  processImageRGBA(y={top}): {rc}")
+                lines.append(f"  processImageRGBA(y={band_top}): {rc}")
                 break
     except Exception as e:
         lines.append(f"  이미지 전달 실패: {e}")
