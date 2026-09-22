@@ -794,6 +794,11 @@ def _run_with_probe(args: list, printer_name: str = None) -> int:
     return last_rc if last_rc is not None else -1401
 
 
+def api_backend_active(printer_name: str = "") -> bool:
+    """호출자(processor)가 백엔드를 물을 때 쓰는 공개 이름."""
+    return _api_backend_active(printer_name)
+
+
 def _api_backend_active(printer_name: str = "") -> bool:
     """이번 작업을 라이브러리 직접 호출로 처리할지.
 

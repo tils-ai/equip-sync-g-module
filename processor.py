@@ -97,6 +97,7 @@ def _print_via_cli(
     AUTO_FIT 모드(기본): 이미지를 플레이트에 contain(축소만, 작으면 원본), 가로 중앙·세로 상단 배치.
     """
     from garment_cli import (
+        api_backend_active,
         create_arx4,
         describe_cli_selection,
         describe_versions,
@@ -193,13 +194,18 @@ def _print_via_cli(
         if rc != 0:
             raise RuntimeError(f"인쇄 데이터 생성 실패 (코드: {rc})")
 
-        _extract_arx_diagnostic(
-            extract_data=extract_data,
-            arx_path=arx4_path,
-            page=0,
-            data_ext=data_ext,
-            printer_name=printer_name,
-        )
+        # 추출 진단은 CLI 명령이다. 직접 호출로 출력한 건을 여기서 CLI 로 열면, 출력이
+        # 성공했는데도 -1401 진단서가 쌓이고 PowerShell 조회로 매 건 몇 초씩 버린다.
+        if api_backend_active(printer_name):
+            logger.info("  인쇄 데이터 추출 진단 건너뜀 (직접 호출 경로)")
+        else:
+            _extract_arx_diagnostic(
+                extract_data=extract_data,
+                arx_path=arx4_path,
+                page=0,
+                data_ext=data_ext,
+                printer_name=printer_name,
+            )
 
         logger.info("  프린터 전송 중 (%s)...", printer_name)
         rc = send_to_printer(arx4_path, printer_name)
