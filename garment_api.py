@@ -43,8 +43,13 @@ class ProOption(ctypes.Structure):
 
     4.x 대비 `byPrintMethod` · `byWInkVer` · `byQuality` · `bFastMode` 가 늘었다. 특히
     `byWInkVer` 가 `byInk` 와 `byResolution` **사이**에 끼어 그 뒤가 전부 밀린다.
+
+    **패딩 없는 배치(`_pack_ = 1`)다.** 벤더 편집기의 FFI 선언이 packed 구조체를 쓴다.
+    기본 정렬로 두면 1바이트 항목 뒤 4바이트 항목 앞에 패딩이 끼어 그 뒤가 전부 밀리고,
+    라이브러리는 엉뚱한 값을 읽어 범위 초과로 거부한다(현장에서 -1111 로 나타났다).
     """
 
+    _pack_ = 1
     _fields_ = [
         ("szFileName", ctypes.c_char * MAX_PATH),
         ("uiCopies", UINT),
@@ -90,8 +95,12 @@ class ProOption(ctypes.Structure):
 
 
 class LegacyOption(ctypes.Structure):
-    """legacy 계열 5.x 세대 인쇄 옵션. 이 세대에는 여기에도 `byWInkVer` 가 들어갔다."""
+    """legacy 계열 5.x 세대 인쇄 옵션. 이 세대에는 여기에도 `byWInkVer` 가 들어갔다.
 
+    pro 와 마찬가지로 패딩 없는 배치다.
+    """
+
+    _pack_ = 1
     _fields_ = [
         ("szFileName", ctypes.c_char * MAX_PATH),
         ("uiCopies", UINT),
@@ -132,12 +141,23 @@ class LegacyOption(ctypes.Structure):
     ]
 
 
-# 라이브러리 이름 접두사별 구조체. 접두사는 라이브러리 파일명에서 뽑는다(벤더명 미기재).
-_OPTION_BY_PREFIX = {"pro": ProOption, "legacy": LegacyOption}
+# 기본 정렬(패딩 있음) 변형 — 어느 쪽이 맞는지 현장에서 한 번에 가리기 위해 함께 둔다.
+AlignedProOption = type("AlignedProOption", (ctypes.Structure,), {"_fields_": list(ProOption._fields_)})
+AlignedLegacyOption = type("AlignedLegacyOption", (ctypes.Structure,), {"_fields_": list(LegacyOption._fields_)})
+
+# 계열별 배치 후보. packed 를 먼저 둔다(벤더 편집기 선언이 packed 다).
+_LAYOUTS = {
+    "pro": (("packed", ProOption), ("기본정렬", AlignedProOption)),
+    "legacy": (("packed", LegacyOption), ("기본정렬", AlignedLegacyOption)),
+}
+
+
+def option_layouts(model: str) -> tuple:
+    return _LAYOUTS.get(model, _LAYOUTS["pro"])
 
 
 def option_type_for(api_dll: str, model: str) -> type:
-    return _OPTION_BY_PREFIX.get(model, ProOption)
+    return option_layouts(model)[0][1]
 
 
 ID = "id"
@@ -274,13 +294,18 @@ def probe(api_dll: str, model: str = "pro") -> list:
     rc, err = call("GetCustom")
     lines.append(f"  GetCustom  : {err or rc}")
 
-    opt = sample_option(option_type)
-    rc, err = call("CheckOption", ctypes.byref(opt))
-    if err:
-        lines.append(f"  CheckOption: {err}")
-    else:
-        verdict = "정렬 일치로 판단" if rc == 0 else "배치 불일치 의심 — 아래 오프셋 표 확인"
-        lines.append(f"  CheckOption: {rc} ({verdict})")
+    opt = None
+    for label, layout in option_layouts(model):
+        candidate = sample_option(layout)
+        rc, err = call("CheckOption", ctypes.byref(candidate))
+        if err:
+            lines.append(f"  CheckOption({label}): {err}")
+            continue
+        verdict = "배치 일치" if rc == 0 else "불일치"
+        lines.append(f"  CheckOption({label}, {ctypes.sizeof(layout)}B): {rc} ({verdict})")
+        if rc == 0 and opt is None:
+            opt = candidate
+    opt = opt if opt is not None else sample_option(option_type)
 
     ink_color = INT(0)
     ink_white = INT(0)
@@ -348,10 +373,8 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
         return None, ["API 라이브러리를 찾지 못했습니다."]
 
     prefix = garment_runtime.driver_file_prefix(api_dll)
-    option_type = option_type_for(api_dll, model)
-    opt = sample_option(option_type, overrides)
-    opt.szFileName = os.path.abspath(out_path).encode("utf-8", "ignore")[:MAX_PATH - 1]
-    opt.szJobName = b"direct-call test"
+    file_name = os.path.abspath(out_path).encode("utf-8", "ignore")[:MAX_PATH - 1]
+    job_name = b"direct-call test"
 
     lines.append(f"  라이브러리 : {garment_runtime.describe_file(api_dll)}")
     lines.append(f"  입력 PNG   : {png_path}")
@@ -363,17 +386,36 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
         return None, lines + [f"  로드 실패   : {e}"]
 
     # 배치가 틀린 채 진행하면 값이 밀린 데이터가 만들어진다. 반드시 먼저 막는다.
+    # 배치 후보(packed / 기본정렬)를 차례로 검사해 통과하는 쪽을 쓴다.
     try:
-        rc = getattr(lib, f"{prefix}CheckOption")(ctypes.byref(opt))
-    except Exception as e:
-        return None, lines + [f"  CheckOption 호출 실패: {e}"]
-    lines.append(f"  CheckOption: {rc}")
+        check = getattr(lib, f"{prefix}CheckOption")
+        check.restype = ctypes.c_int32
+    except AttributeError as e:
+        return None, lines + [f"  CheckOption 없음: {e}"]
+
+    opt = None
+    rc = None
+    for label, option_type in option_layouts(model):
+        candidate = sample_option(option_type, overrides)
+        candidate.szFileName = file_name
+        candidate.szJobName = job_name
+        try:
+            code = check(ctypes.byref(candidate))
+        except Exception as e:
+            return None, lines + [f"  CheckOption 호출 실패({label}): {e}"]
+        lines.append(f"  CheckOption({label}, {ctypes.sizeof(option_type)}B): {code}")
+        if code == 0:
+            opt, rc = candidate, 0
+            lines.append(f"  → 배치 확정: {label}")
+            break
+        if opt is None:
+            opt, rc, option_type_used = candidate, code, option_type
     if rc != 0:
+        option_type = option_type_used
         # 어느 항목이 걸렸는지 라이브러리에 직접 물어 통과값을 찾는다. 세대가 바뀌면 항목의
         # 유효 범위·의미도 같이 바뀌는데(5.x 는 항목이 넷 늘었다), 그때마다 현장을 한 번 더
         # 왕복시키는 대신 여기서 맞춘다. 무엇을 바꿨는지는 반드시 남긴다.
-        check = getattr(lib, f"{prefix}CheckOption")
-        fixed, note = _autofix(check, option_type, overrides, opt.szFileName, opt.szJobName)
+        fixed, note = _autofix(check, option_type, overrides, file_name, job_name)
         if fixed is None:
             lines.append("  → 통과하는 값을 찾지 못했습니다. 생성을 중단합니다(밀린 값으로 만들면 안 됨).")
             return rc, lines
