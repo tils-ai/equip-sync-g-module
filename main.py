@@ -48,6 +48,18 @@ def setup_logging(to_file: bool = True) -> None:
     root.addHandler(sh)
 
 
+def _hard_exit(code: int) -> None:
+    """정리 단계를 건너뛰고 즉시 끝낸다.
+
+    벤더 라이브러리를 부른 프로세스는 일을 마치고도 종료되지 않고 매달리는 경우가 있다.
+    현장에서 인쇄 데이터를 5MB 만들어 놓고도 자식이 안 죽어, 부모가 180초를 기다린 뒤
+    실패로 보고 다음 모양으로 넘어갔다. 결과를 이미 남겼으므로 미련 없이 끊는다.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
+
+
 def run_api_selftest() -> int:
     """`--api-selftest` — API 직접 호출 전환의 1단계(구조체 정렬) 점검만 하고 끝낸다.
 
@@ -96,7 +108,7 @@ def run_api_makearxp(png_path: str, out_path: str = "", opt_json: str = "",
     # 부모가 결과를 읽는 약속된 줄. 자식이 죽으면 이 줄이 없다 → 부모가 크래시로 판정한다.
     print(f"RC={rc}")
     log.info("직접 호출 생성 반환 코드: %s", rc)
-    return 0 if rc == 0 else 1
+    _hard_exit(0 if rc == 0 else 1)
 
 
 from gui import WatcherApp
@@ -145,7 +157,7 @@ def main():
         for line in lines:
             print(line)
         print(f"RC={rc}")
-        raise SystemExit(0 if rc == 0 else 1)
+        _hard_exit(0 if rc == 0 else 1)
     if "--api-makearxp" in sys.argv:
         i = sys.argv.index("--api-makearxp")
         rest = [a for a in sys.argv[i + 1:] if not a.startswith("--")]

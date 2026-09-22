@@ -333,6 +333,8 @@ def probe(api_dll: str, model: str = "pro") -> list:
     return lines
 
 
+SEND_LABEL = "PrintData"
+
 SEND_VARIANTS = {
     0: "프린터, 데이터, 잡이름",
     1: "데이터, 프린터, 잡이름",

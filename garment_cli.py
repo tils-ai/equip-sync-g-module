@@ -821,6 +821,20 @@ def _api_backend_active(printer_name: str = "") -> bool:
     return bool(installed) and not any(_same_generation(exe, p) for p in installed)
 
 
+def _rc_from_trace(out_path: str):
+    """시간 초과 뒤 판정 — 기록에 성공이 남고 결과 파일이 있으면 성공으로 본다."""
+    if not os.path.isfile(out_path) or os.path.getsize(out_path) <= 0:
+        return None
+    return 0 if _trace_has("PrintFile  : 0") else None
+
+
+def _trace_has(needle: str) -> bool:
+    for line in _last_direct_trace(tail=40):
+        if needle in line:
+            return True
+    return False
+
+
 def _last_direct_trace(tail: int = 12) -> list:
     """직접 호출 기록 파일의 마지막 줄들 — 자식이 죽어 표준 출력을 잃었을 때 쓴다."""
     log_dir = os.path.dirname(config.LOG_FILE) or os.path.join(config.BASE_DIR, "logs")
@@ -868,11 +882,16 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
                "--opt", json.dumps(overrides or {})]
         try:
             result = subprocess.run(
-                cmd, capture_output=True, timeout=180,
+                cmd, capture_output=True, timeout=120,
                 stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
             )
         except subprocess.TimeoutExpired:
-            collected.append(f"  호출 모양 {variant}: 시간 초과(180초)")
+            # 자식이 일을 마치고도 안 끝나는 경우가 있다. 결과물이 남았으면 성공으로 본다.
+            rc = _rc_from_trace(out_path)
+            collected.append(f"  호출 모양 {variant}: 시간 초과 — 결과 확인 {rc}")
+            if rc == 0:
+                _save_variant(config.ACTIVE_PRINTFILE_STATE, variant)
+                return 0, collected
             continue
         rc, lines = _parse_child(result)
         if rc is not None:
@@ -909,6 +928,9 @@ def _send_isolated(data_path: str, printer: str, model: str):
             )
         except subprocess.TimeoutExpired:
             logger.error("  전송 모양 %s: 시간 초과(600초)", variant)
+            if _trace_has(f"{garment_api.SEND_LABEL}  : 0"):
+                _save_variant(config.ACTIVE_SEND_STATE, variant)
+                return 0
             continue
         rc, lines = _parse_child(result)
         for line in lines:
