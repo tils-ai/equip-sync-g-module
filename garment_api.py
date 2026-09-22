@@ -593,15 +593,51 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
         raw = canvas.tobytes()
         stride = canvas_w * 4
         lines.append(f"  밴드       : {BAND_HEIGHT}행씩 {-(-canvas_h // BAND_HEIGHT)}회")
+
+        # 픽셀 전달 인자 모양도 확정되지 않았다. 열어 둔 핸들을 함께 넘기는 모양이 유력하다
+        # (open 이 핸들을 돌려주고, close 도 핸들을 받는 구조로 보인다). 첫 밴드에서 모양을
+        # 정하고 나머지는 그 모양으로 민다.
+        def _shapes(width, rows, buf, y):
+            return (
+                ("핸들, w, h, 버퍼, y, 변환",
+                 lambda: process(handle, ctypes.c_int32(width), ctypes.c_int32(rows), buf,
+                                 ctypes.c_int32(y), ctypes.c_int32(white_convert))),
+                ("w, h, 버퍼, y, 변환",
+                 lambda: process(ctypes.c_int32(width), ctypes.c_int32(rows), buf,
+                                 ctypes.c_int32(y), ctypes.c_int32(white_convert))),
+                ("핸들, w, h, 버퍼, y",
+                 lambda: process(handle, ctypes.c_int32(width), ctypes.c_int32(rows), buf,
+                                 ctypes.c_int32(y))),
+                ("w, h, 버퍼, y",
+                 lambda: process(ctypes.c_int32(width), ctypes.c_int32(rows), buf,
+                                 ctypes.c_int32(y))),
+            )
+
+        chosen = None
         for band_top in range(0, canvas_h, BAND_HEIGHT):
             rows = min(BAND_HEIGHT, canvas_h - band_top)
             chunk = raw[band_top * stride:(band_top + rows) * stride]
             buf = ctypes.create_string_buffer(chunk, len(chunk))
-            rc = process(ctypes.c_int32(canvas_w), ctypes.c_int32(rows), buf,
-                         ctypes.c_int32(band_top), ctypes.c_int32(white_convert))
-            if rc != 0:
-                lines.append(f"  processImageRGBA(y={band_top}): {rc}")
-                break
+            candidates = _shapes(canvas_w, rows, buf, band_top)
+            if chosen is None:
+                for label, call in candidates:
+                    try:
+                        rc = call()
+                    except Exception as e:
+                        lines.append(f"  픽셀 전달({label}) 호출 실패: {e}")
+                        continue
+                    lines.append(f"  픽셀 전달({label}): {rc}")
+                    if rc == 0:
+                        chosen = candidates.index((label, call))
+                        lines.append(f"  → 전달 모양 확정: {label}")
+                        break
+                if chosen is None:
+                    break
+            else:
+                rc = candidates[chosen][1]()
+                if rc != 0:
+                    lines.append(f"  픽셀 전달(y={band_top}): {rc}")
+                    break
     except Exception as e:
         lines.append(f"  이미지 전달 실패: {e}")
         rc = None
@@ -609,7 +645,10 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
     try:
         closer = getattr(lib, f"{prefix}ClosePrinter")
         closer.restype = ctypes.c_int32
-        crc = closer()
+        crc = closer(handle)
+        if crc != 0:
+            lines.append(f"  close(핸들): {crc}, 인자 없이 재시도")
+            crc = closer()
         lines.append(f"  close      : {crc}")
         if rc == 0 and crc != 0:
             rc = crc
