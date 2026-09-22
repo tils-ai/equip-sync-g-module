@@ -95,6 +95,9 @@ _active_exe: str | None = None
 # "" = 임베드본 확정, None = 아직 미확정.
 _active_api: str | None = None
 
+# 세대 불일치 안내를 프로세스당 1회만 남기기 위한 플래그.
+_mismatch_logged = False
+
 
 def _model_for_exe(exe: str) -> str:
     base = os.path.basename(exe or "").lower()
@@ -285,19 +288,23 @@ def _same_generation_only(exe: str, installed: list) -> list:
     그 뒤 값이 전부 한 칸씩 밀린다. 값 검증에 걸리면 그나마 다행이고, 안 걸리면 **플래튼·잉크
     같은 값이 엉뚱하게 적용된 채 출력된다.** 옷을 버리는 쪽이 훨씬 비싸므로 섞지 않는다.
     """
+    global _mismatch_logged
     usable, mismatched = [], []
     for path in installed:
         (usable if _same_generation(exe, path) else mismatched).append(path)
-    if mismatched and not usable:
-        logger.error(
-            "설치된 API 라이브러리 세대가 CLI 와 다릅니다 — 섞으면 설정이 어긋나므로 쓰지 않습니다."
+    # 임베드본이 드라이버와 맞는 PC 에서도 이 경로를 지난다. 매 작업마다 빨간 줄을 쌓으면
+    # 정상 동작을 장애로 오해하게 되므로, 프로세스당 한 번만 경고로 알린다.
+    if mismatched and not usable and not _mismatch_logged:
+        _mismatch_logged = True
+        logger.warning(
+            "설치된 API 라이브러리는 CLI 와 세대가 달라 쓰지 않습니다 — 임베드본으로 진행합니다."
         )
-        logger.error("  CLI  : %s", garment_runtime.describe_file(exe))
+        logger.warning("  CLI  : %s", garment_runtime.describe_file(exe))
         for path in mismatched:
-            logger.error("  설치본: %s", garment_runtime.describe_file(path))
-        logger.error(
-            "  이 PC 드라이버 세대에 맞는 CLI 가 필요합니다(벤더 확보). "
-            "임시로 쓰려면 설정의 'API 라이브러리'를 '설치본 고정'으로 바꾸십시오."
+            logger.warning("  설치본: %s", garment_runtime.describe_file(path))
+        logger.warning(
+            "  임베드본으로도 드라이버를 못 찾으면(-1401) 이 PC 드라이버 세대에 맞는 CLI 가 "
+            "필요합니다. 설정의 'API 라이브러리'를 '설치본 고정'으로 두면 세대를 무시하고 씁니다."
         )
     return usable
 
