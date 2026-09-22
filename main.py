@@ -140,6 +140,23 @@ def main():
             print(line)
             log.info("%s", line)
         raise SystemExit(0)
+    if "--api-rgba-probe" in sys.argv:
+        import garment_api
+
+        i = sys.argv.index("--api-rgba-probe")
+        rest = [a for a in sys.argv[i + 1:] if not a.startswith("--")]
+        if len(rest) < 2:
+            print("사용법: --api-rgba-probe <png> <프린터>")
+            raise SystemExit(2)
+        try:
+            import ctypes
+
+            ctypes.windll.kernel32.SetErrorMode(0x0002 | 0x0001 | 0x8000)
+        except (AttributeError, OSError):
+            pass
+        for line in garment_api.rgba_probe(rest[0], rest[1]):
+            print(line)
+        _hard_exit(0)
     if "--api-rgba" in sys.argv:
         import garment_api
 

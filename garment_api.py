@@ -484,6 +484,80 @@ def option_json(opt: ctypes.Structure) -> str:
     return json.dumps(data)
 
 
+def rgba_probe(png_path: str, printer_name: str, api_dll: str = "", model: str = "pro",
+               overrides: dict = None) -> list:
+    """픽셀 전달 인자 모양을 한 번에 훑는다.
+
+    한 모양씩 빌드를 돌리면 현장 왕복이 너무 길다. 프린터를 열어 둔 채로 후보를 차례로 불러
+    반환 코드를 전부 기록한다. 0 이 나오는 모양이 정답이다.
+    """
+    lines = _Trace()
+    exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
+    api_dll = api_dll or _pick_api(exe)
+    prefix = garment_runtime.driver_file_prefix(api_dll)
+    option_type = option_type_for(api_dll, model)
+    opt = sample_option(option_type, overrides)
+    lines.append(f"  라이브러리 : {garment_runtime.describe_file(api_dll)}")
+    try:
+        from PIL import Image
+
+        lib = _load(api_dll)
+        opener = getattr(lib, f"{prefix}OpenPrinter")
+        opener.restype = ctypes.c_int32
+        process = getattr(lib, f"{prefix}ProcessImage_RGBA")
+        process.restype = ctypes.c_int32
+        closer = getattr(lib, f"{prefix}ClosePrinter")
+        closer.restype = ctypes.c_int32
+    except (ImportError, OSError, AttributeError) as e:
+        lines.append(f"  준비 실패: {e}")
+        lines.close()
+        return list(lines)
+
+    handle = ctypes.c_void_p()
+    rc = opener(ctypes.byref(handle), ctypes.c_wchar_p(printer_name), ctypes.byref(_as_buffer(opt)))
+    lines.append(f"  open: {rc}")
+    if rc != 0:
+        lines.close()
+        return list(lines)
+
+    with Image.open(png_path) as img:
+        band = img.convert("RGBA").crop((0, 0, min(img.width, 512), min(img.height, 8)))
+    w, h = band.size
+    raw = band.tobytes()
+    buf = ctypes.create_string_buffer(raw, len(raw))
+    I = ctypes.c_int32
+    lines.append(f"  시험 밴드  : {w}x{h}")
+
+    shapes = []
+    for conv in (0, 1, 2):
+        shapes.append((f"w,h,buf,y=0,conv={conv}", (I(w), I(h), buf, I(0), I(conv))))
+        shapes.append((f"핸들,w,h,buf,y=0,conv={conv}", (handle, I(w), I(h), buf, I(0), I(conv))))
+    shapes += [
+        ("w,h,buf,y=0", (I(w), I(h), buf, I(0))),
+        ("w,h,buf", (I(w), I(h), buf)),
+        ("buf,w,h,y=0,conv=0", (buf, I(w), I(h), I(0), I(0))),
+        ("h,w,buf,y=0,conv=0 (가로세로 바꿈)", (I(h), I(w), buf, I(0), I(0))),
+        ("w,h,buf,stride,y=0,conv=0", (I(w), I(h), buf, I(w * 4), I(0), I(0))),
+        ("핸들,w,h,buf,stride,y=0,conv=0", (handle, I(w), I(h), buf, I(w * 4), I(0), I(0))),
+        ("w,h,stride,buf,y=0,conv=0", (I(w), I(h), I(w * 4), buf, I(0), I(0))),
+        ("w,h,buf,y=0,conv=0,0", (I(w), I(h), buf, I(0), I(0), I(0))),
+    ]
+    for label, args in shapes:
+        try:
+            code = process(*args)
+        except Exception as e:
+            lines.append(f"  {label}: 호출 실패 {e}")
+            continue
+        lines.append(f"  {label}: {code}")
+        if code == 0:
+            lines.append("  → 이 모양이 통합니다")
+            break
+
+    lines.append(f"  close: {closer(handle)}")
+    lines.close()
+    return list(lines)
+
+
 def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "",
                model: str = "pro", overrides: dict = None, white_convert: int = 0,
                position: str = "", size: str = "") -> tuple:
