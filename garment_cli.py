@@ -238,12 +238,13 @@ def _clear_active_api() -> None:
 def _candidate_apis(exe: str) -> list:
     """이 exe 로 시도할 API 라이브러리 목록. "" = 임베드본(복사 없이 그대로 실행).
 
-    기본 auto 는 **설치본 먼저**다. 설치본은 그 PC 의 드라이버와 한 패키지로 깔린 것이라
-    세대가 맞고, 임베드본은 우리가 확보한 시점에 굳은 것이라 안 맞을 수 있다. 처음에는
-    임베드본을 먼저 뒀는데, 현장에서 매 작업마다 -1401 로 한 번 실패한 뒤에야 설치본으로
-    넘어가는 낭비가 드러났다(진단서 생성까지 따라붙어 7초). 순서를 뒤집는다.
+    기본 auto 는 **임베드본 먼저**다. 임베드본은 CLI 와 한 벌로 확보한 짝이라 조합이 검증돼
+    있다. 잘 돌던 현장을 설치본으로 갈아타게 하면 같은 세대라도 소수점 버전 차이로 깨질 수
+    있다. 임베드본이 드라이버를 못 찾을 때(-1401 계열)만 설치본으로 간다.
 
-    설치본이 없거나 그것도 드라이버를 못 찾으면 임베드본으로 내려간다.
+    한때 설치본을 먼저 뒀는데, 그건 임베드본이 드라이버와 안 맞는 현장 한 곳을 빨리 구제하려던
+    것이었다. 그 현장은 지금 직접 호출 경로로 돌므로 순서를 되돌린다. 실패한 조합은 한 번만
+    시도되고 성공한 조합이 확정되므로 낭비도 한 번뿐이다.
     """
     mode = getattr(config, "GARMENT_API_DLL", "auto") or "auto"
     if mode not in ("auto", "embedded", "installed"):
@@ -274,7 +275,10 @@ def _candidate_apis(exe: str) -> list:
                     garment_runtime.describe_file(path),
                 )
         return installed or [""]
-    return _same_generation_only(exe, installed) + [""]
+    # **임베드본 먼저.** 임베드본은 CLI 와 한 벌로 확보한 짝이라 조합이 검증돼 있다. 잘 돌던
+    # 현장을 설치본으로 갈아타게 하면, 같은 세대라도 소수점 버전 차이로 깨질 수 있다 :
+    # 오늘 겪은 고장이 정확히 그 종류였다. 임베드본이 드라이버를 못 찾을 때만 설치본으로 간다.
+    return [""] + _same_generation_only(exe, installed)
 
 
 def _same_generation(exe: str, api_dll: str) -> bool:
