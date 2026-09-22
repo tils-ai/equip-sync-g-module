@@ -399,12 +399,19 @@ def _resolve_api_dll_mode() -> str:
 def _resolve_backend() -> str:
     """출력 백엔드.
 
-    cli(기본) = 벤더 CLI 경유 (지금까지의 동작)
-    api       = 라이브러리 직접 호출 (CLI 불필요, 드라이버 세대에 자동으로 맞음)
-    auto      = 세대가 맞는 CLI 조합이 없을 때만 직접 호출로 넘어감
+    **2026-09-22: CMD 4.0 경로로 고정한다.** 설정이 무엇이든 "cli" 를 돌려준다.
+
+    하루 동안 라이브러리 직접 호출(api/auto)을 만들어 붙였으나 검증되지 않은 채 기본값까지
+    올렸고, 그 결과 출력이 조용히 멈추는 사고까지 냈다. 5.0 세대 가이드와 그에 맞는 CMD 를
+    확보하기 전에는 그 경로를 열지 않는다. 코드는 지우지 않고 입구만 막는다.
+
+    풀 때 되돌릴 자리:
+        아래 return "cli" 를 지우고 원래 세 줄을 살린다.
+
+        value = _ini.get("garment_cli", "backend", fallback="cli").strip().lower()
+        return value if value in ("cli", "api", "auto") else "cli"
     """
-    value = _ini.get("garment_cli", "backend", fallback="cli").strip().lower()
-    return value if value in ("cli", "api", "auto") else "cli"
+    return "cli"
 
 
 GARMENT_BACKEND = _resolve_backend()

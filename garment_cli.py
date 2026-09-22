@@ -249,6 +249,11 @@ def _candidate_apis(exe: str) -> list:
     것이었다. 그 현장은 지금 직접 호출 경로로 돌므로 순서를 되돌린다. 실패한 조합은 한 번만
     시도되고 성공한 조합이 확정되므로 낭비도 한 번뿐이다.
     """
+    # **2026-09-22: 임베드본만 쓴다.** 설치본으로 갈아타는 선택은 CMD 4.0 과 짝이 아니고,
+    # 잘 돌던 현장을 건드릴 위험만 남는다. 세대 판정·설치본 탐색 코드는 아래에 그대로 둔다.
+    # 풀 때: 이 return 을 지운다.
+    return [""]
+
     mode = getattr(config, "GARMENT_API_DLL", "auto") or "auto"
     if mode not in ("auto", "embedded", "installed"):
         return [mode] if os.path.isfile(mode) else [""]
@@ -804,8 +809,12 @@ def _run_with_probe(args: list, printer_name: str = None) -> int:
 
 
 def api_backend_active(printer_name: str = "") -> bool:
-    """호출자(processor)가 백엔드를 물을 때 쓰는 공개 이름."""
-    return _api_backend_active(printer_name)
+    """호출자(processor)가 백엔드를 물을 때 쓰는 공개 이름.
+
+    **2026-09-22: 항상 False.** CMD 4.0 경로로 고정했다(config._resolve_backend 주석 참조).
+    아래 _api_backend_active 와 직접 호출 구현은 그대로 남겨 둔다.
+    """
+    return False
 
 
 def _api_backend_active(printer_name: str = "") -> bool:
