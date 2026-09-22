@@ -1,4 +1,4 @@
-"""가먼트 API 직접 호출 — 1단계: 구조체 선언과 정렬 검증.
+"""가먼트 API 직접 호출 : 1단계: 구조체 선언과 정렬 검증.
 
 지금 출력 경로는 `우리 코드 → 벤더 CLI(exe) → 벤더 API(dll) → 드라이버` 다. 구조체를 채우는
 주체가 CLI 라서 **CLI 세대가 곧 우리 세대**이고, 현장이 드라이버를 올릴 때마다 CLI 를 새로
@@ -11,7 +11,7 @@
 맞는지만 확인한다. 배치가 틀리면 값이 한 칸씩 밀린 채 인쇄되는데, 그건 출력이 실패하는 것보다
 훨씬 비싼 사고다(옷을 버린다). 그래서 점검을 먼저 통과시키고 나서 다음 단계로 간다.
 
-필드 순서·타입의 출처는 dps-store 문서 허브의 5.x 구조체 문서다. 폭이 고정된 타입만 쓴다 —
+필드 순서·타입의 출처는 dps-store 문서 허브의 5.x 구조체 문서다. 폭이 고정된 타입만 쓴다 -
 개발 장비(macOS/Linux)에서도 오프셋이 같아야 표와 대조할 수 있기 때문이다.
 """
 
@@ -141,7 +141,7 @@ class LegacyOption(ctypes.Structure):
     ]
 
 
-# 기본 정렬(패딩 있음) 변형 — 어느 쪽이 맞는지 현장에서 한 번에 가리기 위해 함께 둔다.
+# 기본 정렬(패딩 있음) 변형 : 어느 쪽이 맞는지 현장에서 한 번에 가리기 위해 함께 둔다.
 AlignedProOption = type("AlignedProOption", (ctypes.Structure,), {"_fields_": list(ProOption._fields_)})
 AlignedLegacyOption = type("AlignedLegacyOption", (ctypes.Structure,), {"_fields_": list(LegacyOption._fields_)})
 
@@ -246,7 +246,7 @@ def sample_option(option_type: type, overrides: dict = None) -> ctypes.Structure
 
 
 def field_layout(option_type: type) -> list:
-    """(필드명, 오프셋, 크기) 목록 — 보고서에서 표와 대조하기 위한 것."""
+    """(필드명, 오프셋, 크기) 목록 : 보고서에서 표와 대조하기 위한 것."""
     return [
         (name, getattr(option_type, name).offset, getattr(option_type, name).size)
         for name, _ in option_type._fields_
@@ -343,7 +343,7 @@ SEND_VARIANTS = {
 
 def send(data_path: str, printer_name: str, api_dll: str = "", model: str = "pro",
          job_name: str = "", variant: int = 0) -> tuple:
-    """3단계 — 만들어 둔 인쇄 데이터를 장비로 보낸다. CLI 의 `send -A … -P …` 에 해당한다.
+    """3단계 : 만들어 둔 인쇄 데이터를 장비로 보낸다. CLI 의 `send -A … -P …` 에 해당한다.
 
     문자열 세 개만 넘기는 함수라 구조체 배치와 무관하다. 즉 세대가 달라도 이 호출만은
     안전하다. 인자 순서(프린터, 데이터, 잡 이름)는 벤더 편집기의 호출 형태를 따랐다.
@@ -370,7 +370,7 @@ def send(data_path: str, printer_name: str, api_dll: str = "", model: str = "pro
         lines.close()
         return None, list(lines)
 
-    lines.append(f"  전송 모양  : variant {variant} — {SEND_VARIANTS.get(variant, '?')}")
+    lines.append(f"  전송 모양  : variant {variant} : {SEND_VARIANTS.get(variant, '?')}")
     data = ctypes.c_wchar_p(os.path.abspath(data_path))
     target = ctypes.c_wchar_p(printer_name)
     job = ctypes.c_wchar_p(job_name or os.path.basename(data_path))
@@ -404,7 +404,7 @@ class _Trace(list):
             stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
             self.path = os.path.join(diag, f"api-direct-{stamp}.txt")
             self._fh = open(self.path, "w", encoding="utf-8")
-            self._write(f"가먼트 API 직접 호출 기록 — {stamp}")
+            self._write(f"가먼트 API 직접 호출 기록 : {stamp}")
             self._write(f"실행 빌드: {getattr(config, 'APP_VERSION', '?')}")
         except OSError:
             self._fh = None
@@ -447,10 +447,10 @@ PRINTFILE_VARIANTS = {
 def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro",
               position: str = "", size: str = "", overrides: dict = None,
               variant: int = 0, printer_name: str = "") -> tuple:
-    """2단계 시험 — 라이브러리를 직접 불러 PNG 에서 인쇄 데이터를 만든다.
+    """2단계 시험 : 라이브러리를 직접 불러 PNG 에서 인쇄 데이터를 만든다.
 
     `PrintFile(입력경로, 옵션, RECT, 잡이름, BOOL)` 한 번으로 되는지 확인하는 것이 목적이다.
-    출력 파일 경로는 옵션의 `szFileName` 에 실어 보낸다 — CLI 의 `-A` 에 해당한다.
+    출력 파일 경로는 옵션의 `szFileName` 에 실어 보낸다 : CLI 의 `-A` 에 해당한다.
 
     ⚠ **아직 미검증 경로다.** 마지막 BOOL 인자의 의미를 벤더 자료 없이 확정하지 못했다.
     장비로 바로 보내는 뜻일 가능성을 배제할 수 없으므로, **첫 실행은 장비 전원을 끄거나 USB 를
@@ -523,7 +523,7 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
     rect = RECT(left, top, left + width, top + height)
     lines.append(f"  RECT       : ({rect.left}, {rect.top}, {rect.right}, {rect.bottom}) 0.1mm")
 
-    lines.append(f"  호출 모양  : variant {variant} — {PRINTFILE_VARIANTS.get(variant, '?')}")
+    lines.append(f"  호출 모양  : variant {variant} : {PRINTFILE_VARIANTS.get(variant, '?')}")
     try:
         fn = getattr(lib, f"{prefix}PrintFile")
         fn.restype = ctypes.c_int32
@@ -568,7 +568,7 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
 def _autofix(check, option_type: type, overrides: dict, file_name: bytes, job_name: bytes):
     """CheckOption 을 통과하는 값을 한 항목씩 바꿔 가며 찾는다.
 
-    반환: (옵션, 무엇을 바꿨는지) — 못 찾으면 (None, "").
+    반환: (옵션, 무엇을 바꿨는지) : 못 찾으면 (None, "").
     """
     for name, values in _PROBE_CANDIDATES:
         if not hasattr(option_type, name):
@@ -590,7 +590,7 @@ def _autofix(check, option_type: type, overrides: dict, file_name: bytes, job_na
 
 
 def _pick_api(exe: str) -> str:
-    """이 시험에 쓸 라이브러리 — 설치본이 있으면 그것, 없으면 임베드본."""
+    """이 시험에 쓸 라이브러리 : 설치본이 있으면 그것, 없으면 임베드본."""
     embedded = garment_runtime.api_dll_for(exe)
     installed = garment_runtime.installed_api_dlls(embedded)
     return installed[0] if installed else embedded
@@ -605,7 +605,7 @@ def _parse_pos(value: str) -> tuple:
         return 0, 0
 
 
-# 후보값 — CheckOption 이 거부할 때 한 항목씩 바꿔 가며 통과 조합을 찾는다.
+# 후보값 : CheckOption 이 거부할 때 한 항목씩 바꿔 가며 통과 조합을 찾는다.
 _PROBE_CANDIDATES = (
     ("byDoublePrint", (0, 1, 2, 3)),
     ("byQuality", (0, 1, 2, 3, 4)),
@@ -702,7 +702,7 @@ def probe_option(api_dll: str = "", model: str = "pro") -> list:
             f"byQuality={found[2]}, byDoublePrint={found[3]}"
         )
     else:
-        lines.append("    통과 조합 없음 — 구조체 배치를 다시 봐야 합니다.")
+        lines.append("    통과 조합 없음 : 구조체 배치를 다시 봐야 합니다.")
     return lines
 
 
@@ -723,7 +723,7 @@ def self_test_report() -> str:
                               ("legacy 계열", config.LEGACY_CLI_EXE, "legacy")):
         L.append(f"[{label}]")
         if not exe or not os.path.isfile(exe):
-            L.append("  CLI 없음 — 건너뜀")
+            L.append("  CLI 없음 : 건너뜀")
             L.append("")
             continue
         embedded = garment_runtime.api_dll_for(exe)

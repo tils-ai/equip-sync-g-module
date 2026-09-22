@@ -34,7 +34,7 @@ _installed_cache: dict[str, list[str]] = {}
 
 
 # ------------------------------------------------------------------------------
-# PE 버전 리소스 읽기 — 현장 조합(임베드/설치본/드라이버)을 버전으로 대조하기 위한 계측.
+# PE 버전 리소스 읽기 : 현장 조합(임베드/설치본/드라이버)을 버전으로 대조하기 위한 계측.
 # ------------------------------------------------------------------------------
 
 def file_version(path: str) -> str:
@@ -42,7 +42,7 @@ def file_version(path: str) -> str:
 
     VS_FIXEDFILEINFO 시그니처(0xFEEF04BD)를 찾아 그 뒤 버전 워드를 읽는다. 리소스
     디렉터리를 정식으로 파싱하지 않는 대신 의존성이 없다(win32api 없이 동작).
-    버전 리소스는 보통 파일 끝쪽 .rsrc 에 있으므로 꼬리부터 본다 — 드라이버 모듈이
+    버전 리소스는 보통 파일 끝쪽 .rsrc 에 있으므로 꼬리부터 본다 : 드라이버 모듈이
     수십 MB 인 경우가 있어 통째로 읽지 않는다.
     """
     data = _read_version_region(path)
@@ -97,7 +97,7 @@ def version_string(path: str, key: str) -> str:
 
 
 def pe_machine_and_corflags(path: str) -> tuple:
-    """(IMAGE_FILE_MACHINE, COR20 flags) — 관리 코드가 아니면 flags 는 None.
+    """(IMAGE_FILE_MACHINE, COR20 flags) : 관리 코드가 아니면 flags 는 None.
 
     AnyCPU .NET 실행파일은 machine 이 x86(0x14C)으로 찍히지만 64비트로 실행된다.
     그 구분에 필요한 CLR 헤더 플래그를 함께 돌려준다.
@@ -146,17 +146,17 @@ def major_version(path: str) -> str:
 def describe_file(path: str) -> str:
     """로그·진단서용 한 줄 요약: `이름 v버전 (크기 bytes)`."""
     if not path or not os.path.isfile(path):
-        return f"{path or '(경로 없음)'} — 없음"
+        return f"{path or '(경로 없음)'} : 없음"
     try:
         size = os.path.getsize(path)
     except OSError:
         size = -1
     version = file_version(path) or "버전 미상"
-    return f"{os.path.basename(path)} v{version} ({size:,} bytes) — {path}"
+    return f"{os.path.basename(path)} v{version} ({size:,} bytes) : {path}"
 
 
 # ------------------------------------------------------------------------------
-# 임베드 자산에서 이름 알아내기 — 벤더 원본명을 코드에 남기지 않기 위한 우회.
+# 임베드 자산에서 이름 알아내기 : 벤더 원본명을 코드에 남기지 않기 위한 우회.
 # ------------------------------------------------------------------------------
 
 def _sibling_dlls(exe: str) -> list[str]:
@@ -193,7 +193,7 @@ def api_dll_for(exe: str) -> str:
 
 
 # ------------------------------------------------------------------------------
-# 설치본 탐색 — 드라이버 패키지가 함께 깔아 둔 같은 이름의 라이브러리를 찾는다.
+# 설치본 탐색 : 드라이버 패키지가 함께 깔아 둔 같은 이름의 라이브러리를 찾는다.
 # ------------------------------------------------------------------------------
 
 def spool_driver_dir() -> str:
@@ -259,7 +259,7 @@ def _registry_roots(company: str) -> list[str]:
                 out.append(value)
         return out
 
-    # ① 제조사 전용 키 — 벤더 도구가 설치 경로를 남기는 자리.
+    # ① 제조사 전용 키 : 벤더 도구가 설치 경로를 남기는 자리.
     if vendor:
         for hive, flag in ((winreg.HKEY_LOCAL_MACHINE, 0), (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY)):
             try:
@@ -275,7 +275,7 @@ def _registry_roots(company: str) -> list[str]:
             except OSError:
                 continue
 
-    # ② 프로그램 추가/제거 — Publisher 가 같은 항목의 InstallLocation.
+    # ② 프로그램 추가/제거 : Publisher 가 같은 항목의 InstallLocation.
     uninstall = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
     for flag in (0, winreg.KEY_WOW64_32KEY):
         try:
@@ -367,11 +367,11 @@ def installed_api_dlls(embedded_dll: str) -> list[str]:
 
 
 # ------------------------------------------------------------------------------
-# 실행 폴더 구성 — 고른 라이브러리를 CLI exe 옆에 둔다.
+# 실행 폴더 구성 : 고른 라이브러리를 CLI exe 옆에 둔다.
 # ------------------------------------------------------------------------------
 
 def version_summary(exe: str, api_dll: str) -> str:
-    """로그·진단서용 버전 3종 요약 — CLI · 사용 중인 API · 드라이버측 파일.
+    """로그·진단서용 버전 3종 요약 : CLI · 사용 중인 API · 드라이버측 파일.
 
     이 세 값의 조합이 현장에서 되고 안 되고를 가른다. 지금까지는 아무 데도 안 남아
     매번 추리해야 했다. 파일 IO 가 있으므로 조합당 1회만 계산하고 캐시한다.
@@ -430,5 +430,5 @@ def prepare(exe: str, api_dll: str) -> str:
         _copy_if_changed(api_dll, os.path.join(folder, os.path.basename(embedded_dll or api_dll)))
         return target_exe
     except OSError as e:
-        logger.warning("가먼트 실행 폴더 구성 실패(%s) — 임베드본으로 진행", e)
+        logger.warning("가먼트 실행 폴더 구성 실패(%s) : 임베드본으로 진행", e)
         return exe

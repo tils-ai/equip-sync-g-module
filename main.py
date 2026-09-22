@@ -10,7 +10,7 @@ fonts.register()
 
 
 def setup_logging(to_file: bool = True) -> None:
-    """루트 로거 설정 — config.LOG_LEVEL/LOG_FILE 반영.
+    """루트 로거 설정 : config.LOG_LEVEL/LOG_FILE 반영.
 
     이 호출이 누락되면 root logger 가 기본 WARNING 레벨이라 agent/processor 의
     logger.info(...) 가 모두 버려져 GUI 로그 박스에 아무것도 안 뜬다.
@@ -21,7 +21,7 @@ def setup_logging(to_file: bool = True) -> None:
     root = logging.getLogger()
     root.setLevel(level)
 
-    # 재진입 방지 — 핸들러 중복 부착 회피
+    # 재진입 방지 : 핸들러 중복 부착 회피
     for h in list(root.handlers):
         root.removeHandler(h)
 
@@ -35,7 +35,7 @@ def setup_logging(to_file: bool = True) -> None:
         os.makedirs(log_dir, exist_ok=True)
     try:
         if not to_file:
-            raise RuntimeError("자식 모드 — 파일 핸들러 생략")
+            raise RuntimeError("자식 모드 : 파일 핸들러 생략")
         fh = logging.FileHandler(config.LOG_FILE, encoding="utf-8")
         fh.setFormatter(fmt)
         root.addHandler(fh)
@@ -61,7 +61,7 @@ def _hard_exit(code: int) -> None:
 
 
 def run_api_selftest() -> int:
-    """`--api-selftest` — API 직접 호출 전환의 1단계(구조체 정렬) 점검만 하고 끝낸다.
+    """`--api-selftest` : API 직접 호출 전환의 1단계(구조체 정렬) 점검만 하고 끝낸다.
 
     GUI 를 띄우지 않는다. 현장 PC 에서 cmd 한 줄로 실행해 보고서만 받아오기 위한 통로다.
     인쇄는 하지 않으므로 장비·옷에 영향이 없다.
@@ -77,7 +77,7 @@ def run_api_selftest() -> int:
 def run_api_makearxp(png_path: str, out_path: str = "", opt_json: str = "",
                      position: str = "", size: str = "", model: str = "pro",
                      variant: int = 0, printer: str = "") -> int:
-    """`--api-makearxp <png> [출력경로]` — 2단계 시험. 인쇄 데이터만 만들어 본다.
+    """`--api-makearxp <png> [출력경로]` : 2단계 시험. 인쇄 데이터만 만들어 본다.
 
     장비로 보내는 단계는 타지 않는다. 다만 마지막 인자의 의미가 미확정이라,
     **첫 실행은 장비 전원을 끄거나 USB 를 뽑고** 하는 것을 전제한다.
@@ -118,6 +118,14 @@ def main():
     # 자식 모드는 watcher.log 를 건드리지 않는다. 부모와 같은 파일에 동시에 쓰면 부모가 남긴
     # 줄이 사라진다(현장에서 전송 단계 로그가 통째로 비었다). 자식의 기록은 진단서로 남는다.
     child_mode = any(a.startswith("--api-") for a in sys.argv)
+    if child_mode:
+        # 한국어 Windows 콘솔은 cp949 라 일부 문자에서 인코딩 오류로 죽는다. 자식의 출력은
+        # 부모가 UTF-8 로 읽으므로 여기서 맞춘다. 인코딩 때문에 작업이 실패하면 안 된다.
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError):
+                pass
     setup_logging(to_file=not child_mode)
     logging.getLogger(__name__).info(
         "=== 실행 빌드: %s · 출력 경로: %s ===", config.APP_VERSION, config.GARMENT_BACKEND

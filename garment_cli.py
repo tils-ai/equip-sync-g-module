@@ -1,7 +1,7 @@
 """가먼트 CLI 래퍼 - subprocess로 호출, 리턴 코드 해석.
 
 legacy/pro 두 계열의 가먼트 CLI 를 auto-probe 로 선택한다(실제 벤더 도구는 빌드 시 중립명으로 복원됨).
-API 라이브러리도 같은 방식으로 고른다 — 임베드본이 드라이버 세대와 안 맞으면(-1401 등)
+API 라이브러리도 같은 방식으로 고른다 : 임베드본이 드라이버 세대와 안 맞으면(-1401 등)
 그 PC 에 설치된 것으로 재시도한다. 배경은 `garment_runtime` 모듈 주석 참조.
 """
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 RETURN_CODES = {
     0: "성공",
-    -1001: "드라이버 파일 없음 — 가먼트 프린터 드라이버 설치 확인",
+    -1001: "드라이버 파일 없음 : 가먼트 프린터 드라이버 설치 확인",
     # -11xx 는 XML 요소 값 범위 초과 (가이드 3-1-3). 코드 번호만으로는 어느 설정이 문제인지
     # 알 수 없어 현장에서 원인을 못 찾는다. 요소명과 유효 범위를 함께 적는다.
     -1101: "출력 파일명과 같은 이름의 폴더가 CLI 폴더에 존재",
@@ -46,13 +46,13 @@ RETURN_CODES = {
     -1133: "설정값 범위 초과: 블랙 밸런스(iBlackBalance)는 -5~5",
     -1135: "설정값 범위 초과: 일시정지 간격(byPauseSpan)은 0~60",
     -1137: "설정값 범위 초과: 분할 간격(byDivideSpan)은 0~60",
-    -1401: "드라이버 파일 없음 — 가먼트 프린터 드라이버/API 라이브러리 위치 확인",
+    -1401: "드라이버 파일 없음 : 가먼트 프린터 드라이버/API 라이브러리 위치 확인",
     -1402: "메모리 할당 실패",
     -1403: "프린터를 찾을 수 없거나 드라이버 사용 불가",
     -1404: "드라이버로 인쇄 시작 실패",
     -1405: "드라이버로 인쇄 시작 실패",
     -1406: "작업 파일 생성 실패",
-    -1701: "드라이버 파일 없음 — API 라이브러리가 드라이버측 모듈을 찾지 못함",
+    -1701: "드라이버 파일 없음 : API 라이브러리가 드라이버측 모듈을 찾지 못함",
     -1705: "메모리 할당 실패",
     -1706: "디바이스 컨텍스트 획득 실패",
     -1707: "이미지 데이터 획득 실패",
@@ -68,10 +68,10 @@ RETURN_CODES = {
     -3108: "-S 와 -R 동시 지정 불가 또는 둘 다 미지정",
 }
 
-# 파일/DLL 누락·드라이버 로드 실패 계열 — 발생 시 별도 진단 .txt 파일을 생성한다.
+# 파일/DLL 누락·드라이버 로드 실패 계열 : 발생 시 별도 진단 .txt 파일을 생성한다.
 _FILE_MISSING_CODES = {-1001, -1401, -1403, -2001, -3102, -3103}
 
-# 설정값 범위 초과 계열 — 어느 값이 문제인지 보려면 XML 을 봐야 하므로 함께 진단서를 남긴다.
+# 설정값 범위 초과 계열 : 어느 값이 문제인지 보려면 XML 을 봐야 하므로 함께 진단서를 남긴다.
 _VALUE_RANGE_CODES = {
     -1101, -1102, -1105, -1106, -1107, -1108, -1109, -1110, -1111,
     -1116, -1117, -1118, -1120, -1121, -1122, -1123, -1124, -1125,
@@ -86,7 +86,7 @@ _REPORT_CODES = _FILE_MISSING_CODES | _VALUE_RANGE_CODES
 # (`printer.py` 의 poppler 호출이 같은 이유로 이미 이렇게 돌고 있다)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-# 드라이버/장비 매칭 실패 계열 — "이 CLI 가 이 장비에 안 맞음" 신호.
+# 드라이버/장비 매칭 실패 계열 : "이 CLI 가 이 장비에 안 맞음" 신호.
 # 이 코드일 때만 다른 계열(legacy ↔ pro)의 가먼트 CLI 로 fallback 한다.
 # (-2001/-3102/-3103 같은 입력 오류는 다른 CLI 로도 동일 실패하므로 제외)
 _DRIVER_MISMATCH_CODES = {-1001, -1401, -1403, -1701}
@@ -266,7 +266,7 @@ def _candidate_apis(exe: str) -> list:
     embedded = garment_runtime.api_dll_for(exe)
     installed = garment_runtime.installed_api_dlls(embedded)
     if mode == "installed":
-        # 운영자가 직접 고른 경우 — 세대가 달라도 시도한다. 대신 경고는 남긴다.
+        # 운영자가 직접 고른 경우 : 세대가 달라도 시도한다. 대신 경고는 남긴다.
         for path in installed:
             if not _same_generation(exe, path):
                 logger.warning(
@@ -300,7 +300,7 @@ def _same_generation_only(exe: str, installed: list) -> list:
     if mismatched and not usable and not _mismatch_logged:
         _mismatch_logged = True
         logger.warning(
-            "설치된 API 라이브러리는 CLI 와 세대가 달라 쓰지 않습니다 — 임베드본으로 진행합니다."
+            "설치된 API 라이브러리는 CLI 와 세대가 달라 쓰지 않습니다 : 임베드본으로 진행합니다."
         )
         logger.warning("  CLI  : %s", garment_runtime.describe_file(exe))
         for path in mismatched:
@@ -313,7 +313,7 @@ def _same_generation_only(exe: str, installed: list) -> list:
 
 
 def _candidate_exes(printer_name: str = "") -> list:
-    """probe 후보 — 프린터 계열이 명확하면 해당 CLI만 사용한다."""
+    """probe 후보 : 프린터 계열이 명확하면 해당 CLI만 사용한다."""
     preferred = _preferred_model_for_printer(printer_name)
     if preferred:
         exe = _exe_for_model(preferred)
@@ -346,7 +346,7 @@ def describe_cli_selection(printer_name: str = "") -> str:
 
 
 def describe_versions(printer_name: str = "") -> str:
-    """현재 조합의 버전 요약 — CLI · API 라이브러리 · 드라이버측 파일."""
+    """현재 조합의 버전 요약 : CLI · API 라이브러리 · 드라이버측 파일."""
     exe = (
         _load_active_exe()
         or _exe_for_model(_preferred_model_for_printer(printer_name))
@@ -403,7 +403,7 @@ def _run(args: list, exe: str = None, printer_name: str = None,
     (send/status/제어 등은 exe 를 넘기지 않으므로 자동으로 확정 CLI 를 재사용)
 
     api_dll 미지정 시 확정된 API 라이브러리를 재사용한다. 값이 있으면(설치본) CLI 와
-    그 라이브러리만 담은 실행 폴더를 만들어 거기서 돌린다 — Windows 는 exe 폴더의
+    그 라이브러리만 담은 실행 폴더를 만들어 거기서 돌린다 : Windows 는 exe 폴더의
     DLL 을 먼저 집으므로, 이것이 어떤 라이브러리가 쓰일지 확정하는 유일한 방법이다.
     """
     if api_dll is None:
@@ -468,7 +468,7 @@ def _run(args: list, exe: str = None, printer_name: str = None,
 
 
 # ------------------------------------------------------------------------------
-# 진단 보고서 — 파일/DLL 누락·드라이버 로드 실패 시 환경 점검 결과를 .txt 로 저장.
+# 진단 보고서 : 파일/DLL 누락·드라이버 로드 실패 시 환경 점검 결과를 .txt 로 저장.
 # 메인 watcher.log 가 비대해지지 않도록 사건당 1개 파일을 시간 기준으로 생성한다.
 # ------------------------------------------------------------------------------
 
@@ -477,11 +477,11 @@ def _format_dir_listing(dir_path: str, indent: str = "  ") -> list[str]:
     if not dir_path:
         return [f"{indent}(경로 없음)"]
     if not os.path.isdir(dir_path):
-        return [f"{indent}{dir_path} — 폴더가 존재하지 않음"]
+        return [f"{indent}{dir_path} : 폴더가 존재하지 않음"]
     try:
         entries = sorted(os.listdir(dir_path))
     except OSError as e:
-        return [f"{indent}{dir_path} — 목록 조회 실패: {e}"]
+        return [f"{indent}{dir_path} : 목록 조회 실패: {e}"]
     lines = [f"{indent}{dir_path} (항목 {len(entries)}개)"]
     for name in entries:
         full = os.path.join(dir_path, name)
@@ -510,7 +510,7 @@ def _check_zone_identifier(path: str) -> str:
         return f"확인 실패: {e}"
     if not content:
         return "차단 표시 있음 (Zone 정보 비어있음)"
-    return "차단됨 — " + content.replace("\r", "").replace("\n", " | ")
+    return "차단됨 : " + content.replace("\r", "").replace("\n", " | ")
 
 
 def _check_architecture(path: str) -> str:
@@ -533,14 +533,14 @@ def _check_architecture(path: str) -> str:
     if cor_flags is None:
         return label
     if cor_flags & 0x2:
-        return "x86 (32-bit) — .NET 32BITREQUIRED"
+        return "x86 (32-bit) : .NET 32BITREQUIRED"
     if cor_flags & 0x20000:
-        return "x86 우선 — .NET 32BITPREFERRED (64비트 OS 에서도 32비트로 실행)"
-    return ".NET AnyCPU (64비트 OS 에서 64비트로 실행 — machine 값은 x86 으로 표기됨)"
+        return "x86 우선 : .NET 32BITPREFERRED (64비트 OS 에서도 32비트로 실행)"
+    return ".NET AnyCPU (64비트 OS 에서 64비트로 실행 : machine 값은 x86 으로 표기됨)"
 
 
 def _check_vcruntime() -> list[tuple[str, bool]]:
-    """VC++ 재배포 런타임 DLL 존재 여부 — 가먼트 API DLL 이 의존."""
+    """VC++ 재배포 런타임 DLL 존재 여부 : 가먼트 API DLL 이 의존."""
     sys32 = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "System32")
     needed = [
         "vcruntime140.dll", "vcruntime140_1.dll",
@@ -571,7 +571,7 @@ def _ps(script: str, timeout: int = 15) -> str:
 
 
 def _diagnostic_dir() -> str:
-    """진단 텍스트 파일 저장 폴더 — <watcher.log 폴더>/diagnostics."""
+    """진단 텍스트 파일 저장 폴더 : <watcher.log 폴더>/diagnostics."""
     log_dir = os.path.dirname(config.LOG_FILE) or os.path.join(config.BASE_DIR, "logs")
     diag_dir = os.path.join(log_dir, "diagnostics")
     os.makedirs(diag_dir, exist_ok=True)
@@ -643,7 +643,7 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
     L.append("[3] CLI 폴더 listing")
     L.extend(_format_dir_listing(exe_dir))
 
-    # 입력 파일 누락 계열 — 해당 파일의 상위 폴더도 점검.
+    # 입력 파일 누락 계열 : 해당 파일의 상위 폴더도 점검.
     if rc in (-2001, -3103):
         img = _extract_arg_path(args, "-I")
         if img:
@@ -677,7 +677,7 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
             L.append(f"  읽기 실패: {e}")
 
     L.append("")
-    L.append("[4] VC++ 재배포 런타임 (System32) — 가먼트 API DLL 의존 모듈")
+    L.append("[4] VC++ 재배포 런타임 (System32) : 가먼트 API DLL 의존 모듈")
     for name, ok in _check_vcruntime():
         L.append(f"  {name:<25} : {'존재' if ok else '없음 (재배포 패키지 미설치 가능성)'}")
 
@@ -694,7 +694,7 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
         "$d = Get-PrinterDriver | Where-Object { $_.Name -match 'GTX|Brother' }; "
         "if ($d) { ($d | Select-Object Name,Manufacturer,DriverVersion,MajorVersion,"
         "ConfigFile,DataFile,DriverPath,InfPath | "
-        "Format-List | Out-String).Trim() } else { '가먼트 프린터 드라이버 없음 — "
+        "Format-List | Out-String).Trim() } else { '가먼트 프린터 드라이버 없음 : "
         "벤더 공식 설치 프로그램으로 가먼트 프린터 드라이버 설치 필요' }"
     ))
 
@@ -726,7 +726,7 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
         for line in driver_modules:
             L.append(f"    {line}")
     else:
-        L.append("    (해당 계열 드라이버 파일 없음 — 드라이버 미설치 또는 다른 계열)")
+        L.append("    (해당 계열 드라이버 파일 없음 : 드라이버 미설치 또는 다른 계열)")
     installed = garment_runtime.installed_api_dlls(embedded_api)
     L.append(f"  설치된 동일 이름 라이브러리 {len(installed)}개")
     for installed_path in installed:  # `path`(보고서 저장 경로)를 가리지 않도록 별도 이름
@@ -749,7 +749,7 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
 
 
 def _run_with_probe(args: list, printer_name: str = None) -> int:
-    """ARX4 생성(print) 전용 — 후보 CLI 를 순회하며 성공하는 것을 확정·캐싱한다.
+    """ARX4 생성(print) 전용 : 후보 CLI 를 순회하며 성공하는 것을 확정·캐싱한다.
 
     - 성공(rc==0): 해당 CLI 를 확정(메모리+상태파일)하고 0 반환.
     - 드라이버/장비 매칭 실패(_DRIVER_MISMATCH_CODES): 다음 후보로 fallback.
@@ -788,7 +788,7 @@ def _run_with_probe(args: list, printer_name: str = None) -> int:
                         "가먼트 API 확정(드라이버 매칭 통과): %s",
                         garment_runtime.describe_file(api_dll) if api_dll else "임베드본",
                     )
-                return rc  # 입력 오류 등 — fallback 무의미
+                return rc  # 입력 오류 등 : fallback 무의미
             last_rc = rc
     logger.error("모든 가먼트 CLI/API 조합 매칭 실패 (마지막 rc=%s)", last_rc)
     _clear_active_exe()
@@ -822,7 +822,7 @@ def _api_backend_active(printer_name: str = "") -> bool:
 
 
 def _rc_from_trace(out_path: str):
-    """시간 초과 뒤 판정 — 기록에 성공이 남고 결과 파일이 있으면 성공으로 본다."""
+    """시간 초과 뒤 판정 : 기록에 성공이 남고 결과 파일이 있으면 성공으로 본다."""
     if not os.path.isfile(out_path) or os.path.getsize(out_path) <= 0:
         return None
     return 0 if _trace_has("PrintFile  : 0") else None
@@ -836,7 +836,7 @@ def _trace_has(needle: str) -> bool:
 
 
 def _last_direct_trace(tail: int = 12) -> list:
-    """직접 호출 기록 파일의 마지막 줄들 — 자식이 죽어 표준 출력을 잃었을 때 쓴다."""
+    """직접 호출 기록 파일의 마지막 줄들 : 자식이 죽어 표준 출력을 잃었을 때 쓴다."""
     log_dir = os.path.dirname(config.LOG_FILE) or os.path.join(config.BASE_DIR, "logs")
     diag = os.path.join(log_dir, "diagnostics")
     try:
@@ -888,7 +888,7 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
         except subprocess.TimeoutExpired:
             # 자식이 일을 마치고도 안 끝나는 경우가 있다. 결과물이 남았으면 성공으로 본다.
             rc = _rc_from_trace(out_path)
-            collected.append(f"  호출 모양 {variant}: 시간 초과 — 결과 확인 {rc}")
+            collected.append(f"  호출 모양 {variant}: 시간 초과 : 결과 확인 {rc}")
             if rc == 0:
                 _save_variant(config.ACTIVE_PRINTFILE_STATE, variant)
                 return 0, collected
@@ -1015,7 +1015,7 @@ def create_arx4(xml_path: str, image_path: str, arx4_path: str,
     if _api_backend_active(printer_name or ""):
         model = _model_for_exe(_exe_for_model(_preferred_model_for_printer(printer_name or "")) or "") or "pro"
         if magnification and not size:
-            logger.warning("직접 호출 경로는 상대 배율(-R)을 아직 지원하지 않습니다 — 절대 크기로 넘겨야 합니다.")
+            logger.warning("직접 호출 경로는 상대 배율(-R)을 아직 지원하지 않습니다 : 절대 크기로 넘겨야 합니다.")
         rc, lines = _make_arxp_isolated(
             image_path, arx4_path, model,
             position or config.POSITION, size or "", option_overrides or {},
@@ -1071,7 +1071,7 @@ def send_to_printer(arx4_path: str, printer_name: str = None) -> int:
         # GTX-4(422/legacy)는 CLI에 -D/작업삭제 제어가 없다(가이드 §3-2/§3-4).
         # 수신 이력 보존 여부는 장비 패널 'Auto Job Delete' 설정이 전적으로 결정한다.
         logger.info(
-            "  작업 삭제(GTX-4/422): CLI 미지원 — 장비 'Auto Job Delete' 패널 설정을 따름"
+            "  작업 삭제(GTX-4/422): CLI 미지원 : 장비 'Auto Job Delete' 패널 설정을 따름"
         )
     return _run(args, printer_name=target)
 
@@ -1111,7 +1111,7 @@ _PS_PRINTING = 0x08
 _PS_MENU_ACTIVE = 0x10
 _PS_ERROR_STOP = 0x20
 
-# 에러코드 행 — 심각(error) vs 경고(warning) 구분. (가이드 샘플 오타 "Usal Error" 병행 매칭)
+# 에러코드 행 : 심각(error) vs 경고(warning) 구분. (가이드 샘플 오타 "Usal Error" 병행 매칭)
 _FATAL_KEYS = ("Fatal Error", "Fatal Error2", "Usual Error", "Usal Error")
 _WARN_KEYS = ("Wait OK", "Wait OK2", "Warning")
 
