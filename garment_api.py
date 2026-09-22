@@ -34,6 +34,12 @@ COLORREF = ctypes.c_uint32
 LONG = ctypes.c_int32
 
 
+class SIZE(ctypes.Structure):
+    """벤더 편집기의 FFI 선언과 같은 SIZE. 폭·높이를 **구조체 하나로** 넘긴다."""
+
+    _fields_ = [("cx", LONG), ("cy", LONG)]
+
+
 class RECT(ctypes.Structure):
     _fields_ = [("left", LONG), ("top", LONG), ("right", LONG), ("bottom", LONG)]
 
@@ -605,26 +611,15 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
         return None, list(lines)
 
     optbuf = _as_buffer(opt)
-    shapes = (
-        ("핸들*, 프린터, 옵션*", lambda: opener(ctypes.byref(handle),
-                                            ctypes.c_wchar_p(printer_name),
-                                            ctypes.byref(optbuf))),
-        ("프린터, 옵션*, 핸들*", lambda: opener(ctypes.c_wchar_p(printer_name),
-                                            ctypes.byref(optbuf),
-                                            ctypes.byref(handle))),
-        ("핸들*, 프린터", lambda: opener(ctypes.byref(handle),
-                                     ctypes.c_wchar_p(printer_name))),
-    )
-    rc = None
-    for label, call in shapes:
-        try:
-            rc = call()
-        except Exception as e:
-            lines.append(f"  open({label}) 호출 실패: {e}")
-            continue
-        lines.append(f"  open({label}): {rc}")
-        if rc == 0:
-            break
+    # 편집기 선언: OpenPrinter(out HANDLE*, WSTRING, 옵션)
+    opener.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_wchar_p, ctypes.c_void_p]
+    try:
+        rc = opener(ctypes.byref(handle), ctypes.c_wchar_p(printer_name), ctypes.cast(optbuf, ctypes.c_void_p))
+    except Exception as e:
+        lines.append(f"  open 호출 실패: {e}")
+        lines.close()
+        return None, list(lines)
+    lines.append(f"  open       : {rc}")
     if rc != 0:
         lines.append("  → 프린터를 열지 못했습니다.")
         lines.close()
@@ -692,31 +687,26 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
                                  ctypes.c_int32(y))),
             )
 
-        chosen = None
+        # 벤더 편집기(Graphics Lab 9)의 FFI 선언이 정답이다.
+        #   ProcessImage_RGBA(HANDLE, SIZE, BYTE*, INT, BOOL)
+        # 폭·높이는 따로 넘기는 두 정수가 아니라 **SIZE 구조체 하나**다. 그동안 두 정수로
+        # 넘겨서 -1602/-1603 이 났다. 핸들은 값으로, 버퍼는 포인터로 넘긴다.
+        process.argtypes = [
+            ctypes.c_void_p, SIZE, ctypes.POINTER(ctypes.c_ubyte),
+            ctypes.c_int32, ctypes.c_int32,
+        ]
         for band_top in range(0, canvas_h, BAND_HEIGHT):
             rows = min(BAND_HEIGHT, canvas_h - band_top)
             chunk = raw[band_top * stride:(band_top + rows) * stride]
             buf = ctypes.create_string_buffer(chunk, len(chunk))
-            candidates = _shapes(canvas_w, rows, buf, band_top)
-            if chosen is None:
-                for label, call in candidates:
-                    try:
-                        rc = call()
-                    except Exception as e:
-                        lines.append(f"  픽셀 전달({label}) 호출 실패: {e}")
-                        continue
-                    lines.append(f"  픽셀 전달({label}): {rc}")
-                    if rc == 0:
-                        chosen = candidates.index((label, call))
-                        lines.append(f"  → 전달 모양 확정: {label}")
-                        break
-                if chosen is None:
-                    break
-            else:
-                rc = candidates[chosen][1]()
-                if rc != 0:
-                    lines.append(f"  픽셀 전달(y={band_top}): {rc}")
-                    break
+            rc = process(handle, SIZE(canvas_w, rows),
+                         ctypes.cast(buf, ctypes.POINTER(ctypes.c_ubyte)),
+                         ctypes.c_int32(band_top), ctypes.c_int32(white_convert))
+            if rc != 0:
+                lines.append(f"  픽셀 전달(y={band_top}): {rc}")
+                break
+        else:
+            lines.append("  픽셀 전달  : 전 밴드 완료")
     except Exception as e:
         lines.append(f"  이미지 전달 실패: {e}")
         rc = None
