@@ -68,6 +68,21 @@ RETURN_CODES = {
 # 파일/DLL 누락·드라이버 로드 실패 계열 — 발생 시 별도 진단 .txt 파일을 생성한다.
 _FILE_MISSING_CODES = {-1001, -1401, -1403, -2001, -3102, -3103}
 
+# 설정값 범위 초과 계열 — 어느 값이 문제인지 보려면 XML 을 봐야 하므로 함께 진단서를 남긴다.
+_VALUE_RANGE_CODES = {
+    -1101, -1102, -1105, -1106, -1107, -1108, -1109, -1110, -1111,
+    -1116, -1117, -1118, -1120, -1121, -1122, -1123, -1124, -1125,
+    -1133, -1135, -1137,
+}
+
+# 진단 보고서를 남길 코드 전체.
+_REPORT_CODES = _FILE_MISSING_CODES | _VALUE_RANGE_CODES
+
+# `--windowed` 로 빌드한 EXE 에서 자식 프로세스를 그냥 띄우면 콘솔 창이 깜빡인다.
+# 진단서를 쓸 때마다 PowerShell 창이 서너 개 떴다 꺼지던 원인이다. 창 없이 실행한다.
+# (`printer.py` 의 poppler 호출이 같은 이유로 이미 이렇게 돌고 있다)
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 # 드라이버/장비 매칭 실패 계열 — "이 CLI 가 이 장비에 안 맞음" 신호.
 # 이 코드일 때만 다른 계열(legacy ↔ pro)의 가먼트 CLI 로 fallback 한다.
 # (-2001/-3102/-3103 같은 입력 오류는 다른 CLI 로도 동일 실패하므로 제외)
@@ -349,7 +364,10 @@ def _run(args: list, exe: str = None, printer_name: str = None,
     # cwd 를 exe 폴더로 강제해 Graphiclabs 와 동일한 실행 컨텍스트 보장.
     cwd = os.path.dirname(run_exe) or None
     logger.debug("실행 (cwd=%s): %s", cwd, " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, timeout=120, cwd=cwd)
+    result = subprocess.run(
+        cmd, capture_output=True, timeout=120, cwd=cwd,
+        stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
+    )
     rc = _normalize_returncode(result.returncode)
     if rc != 0:
         desc = RETURN_CODES.get(rc, f"알 수 없는 에러 ({rc})")
@@ -360,7 +378,7 @@ def _run(args: list, exe: str = None, printer_name: str = None,
             logger.error("가먼트 CLI stdout: %s", stdout)
         if stderr:
             logger.error("가먼트 CLI stderr: %s", stderr)
-        if rc in _FILE_MISSING_CODES:
+        if rc in _REPORT_CODES:
             try:
                 report_path = _write_diagnostic_report(
                     run_exe, cwd, args, rc, result.stdout, result.stderr,
@@ -474,6 +492,7 @@ def _ps(script: str, timeout: int = 15) -> str:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
             capture_output=True, timeout=timeout,
+            stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
         )
     except FileNotFoundError:
         return "(PowerShell 미발견)"
@@ -578,6 +597,19 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
             L.append(f"  존재 : {os.path.isfile(xml)}")
             L.append("  상위 폴더:")
             L.extend(_format_dir_listing(os.path.dirname(xml), indent="    "))
+
+    # 설정값 범위 초과(-11xx)는 넘긴 XML 안에 답이 있다. 로그만 보고 추리하지 않도록 싣는다.
+    xml_arg = _extract_arg_path(args, "-X")
+    if xml_arg:
+        L.append("")
+        L.append("[3c] 인쇄 설정 XML")
+        L.append(f"  경로 : {xml_arg}")
+        try:
+            with open(xml_arg, encoding="utf-8") as f:
+                for line in f.read().splitlines():
+                    L.append(f"    {line}")
+        except OSError as e:
+            L.append(f"  읽기 실패: {e}")
 
     L.append("")
     L.append("[4] VC++ 재배포 런타임 (System32) — 가먼트 API DLL 의존 모듈")
