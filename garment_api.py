@@ -570,8 +570,15 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
 
     left, top = _parse_pos(position or getattr(config, "POSITION", "00000000"))
     width, height = _parse_pos(size or getattr(config, "SIZE", "") or "00000000")
-    rect = RECT(left, top, left + width, top + height)
-    lines.append(f"  RECT       : ({rect.left}, {rect.top}, {rect.right}, {rect.bottom}) 0.1mm")
+    # RECT 는 0.1mm 가 아니라 **장비 도트** 단위다. CLI 의 -S/-L 은 0.1mm 였으므로 환산한다.
+    # 그대로 넘겼더니 현장에서 355.6mm 짜리가 75mm(21%)로 찍혔다 : 3556 을 도트로 읽은 값이다.
+    dpi = int(getattr(config, "API_RECT_DPI", 1200) or 1200)
+    to_dots = lambda v: int(round(v * dpi / 254.0))  # noqa: E731 (254 = 1 inch in 0.1mm)
+    rect = RECT(to_dots(left), to_dots(top), to_dots(left + width), to_dots(top + height))
+    lines.append(
+        f"  배치       : ({left}, {top}) {width}x{height} (0.1mm)"
+        f" -> RECT ({rect.left}, {rect.top}, {rect.right}, {rect.bottom}) @{dpi}dpi"
+    )
 
     png_path = _prepare_image(png_path, opt, lines)
     lines.append(f"  호출 모양  : variant {variant} : {PRINTFILE_VARIANTS.get(variant, '?')}")
