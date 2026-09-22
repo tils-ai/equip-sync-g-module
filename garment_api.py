@@ -140,8 +140,45 @@ def option_type_for(api_dll: str, model: str) -> type:
     return _OPTION_BY_PREFIX.get(model, ProOption)
 
 
-def sample_option(option_type: type, from_config: bool = True) -> ctypes.Structure:
-    """점검용 옵션 값. 현장 설정을 그대로 실어야 현장과 같은 조건이 된다."""
+ID = "id"
+BOOLEAN = "bool"
+
+# 설정 이름 → (구조체 필드, 변환). CLI 가 XML 로 넘기던 값과 같은 것을 구조체에 싣는다.
+_FIELD_MAP = {
+    "copies": ("uiCopies", ID),
+    "platen_size": ("byPlatenSize", ID),
+    "ink": ("byInk", ID),
+    "resolution": ("byResolution", ID),
+    "highlight": ("byHighlight", ID),
+    "mask": ("byMask", ID),
+    "ink_volume": ("byInkVolume", ID),
+    "double_print": ("byDoublePrint", ID),
+    "tolerance": ("byTolerance", ID),
+    "min_white": ("byMinWhite", ID),
+    "choke": ("byChoke", ID),
+    "saturation": ("bySaturation", ID),
+    "brightness": ("byBrightness", ID),
+    "contrast": ("byContrast", ID),
+    "cyan_balance": ("iCyanBalance", ID),
+    "magenta_balance": ("iMagentaBalance", ID),
+    "yellow_balance": ("iYellowBalance", ID),
+    "black_balance": ("iBlackBalance", ID),
+    "color_trans": ("colorTrans", ID),
+    "machine_mode": ("byMachineMode", ID),
+    "eco_mode": ("bEcoMode", BOOLEAN),
+    "material_black": ("bMaterialBlack", BOOLEAN),
+    "multiple": ("bMultiple", BOOLEAN),
+    "trans_color": ("bTransColor", BOOLEAN),
+    "pause": ("bPause", BOOLEAN),
+    "uni_print": ("bUniDirection", BOOLEAN),
+}
+
+# 아직 구조체 대응을 확정하지 못한 CLI 인자. 쓰이면 로그로 알린다.
+UNMAPPED_ARGS = ("-W (흰색 해석)", "-R (상대 배율)")
+
+
+def sample_option(option_type: type, overrides: dict = None) -> ctypes.Structure:
+    """옵션 값 구성. 설정을 기본으로 깔고 호출자가 준 값으로 덮는다."""
     opt = option_type()
     opt.szFileName = b""
     opt.szJobName = b"selftest"
@@ -163,12 +200,28 @@ def sample_option(option_type: type, from_config: bool = True) -> ctypes.Structu
     opt.iMagentaBalance = int(getattr(config, "MAGENTA_BALANCE", 0))
     opt.iYellowBalance = int(getattr(config, "YELLOW_BALANCE", 0))
     opt.iBlackBalance = int(getattr(config, "BLACK_BALANCE", 0))
+    opt.bEcoMode = 1 if getattr(config, "ECO_MODE", False) else 0
+    opt.bMaterialBlack = 1 if getattr(config, "MATERIAL_BLACK", False) else 0
+    opt.bMultiple = 1 if getattr(config, "MULTIPLE", False) else 0
+    opt.bTransColor = 1 if getattr(config, "TRANS_COLOR", False) else 0
+    opt.bPause = 1 if getattr(config, "PAUSE", False) else 0
+    opt.bUniDirection = 1 if getattr(config, "UNI_PRINT", False) else 0
+    opt.colorTrans = int(getattr(config, "COLOR_TRANS", 0))
+    if hasattr(opt, "byMachineMode"):
+        opt.byMachineMode = int(getattr(config, "MACHINE_MODE", 0))
     if hasattr(opt, "byPrintMethod"):
         opt.byPrintMethod = 0  # 0 = 일반 가먼트 출력(DTG)
     if hasattr(opt, "byQuality"):
         opt.byQuality = 1  # 1 = Standard
-    if not from_config:
-        return opt
+
+    for key, value in (overrides or {}).items():
+        mapped = _FIELD_MAP.get(key)
+        if not mapped:
+            continue
+        name, kind = mapped
+        if not hasattr(opt, name):
+            continue  # 계열에 없는 필드(예: legacy 전용) 는 건너뛴다
+        setattr(opt, name, (1 if value else 0) if kind is BOOLEAN else int(value))
     return opt
 
 
@@ -240,8 +293,43 @@ def probe(api_dll: str, model: str = "pro") -> list:
     return lines
 
 
+def send(data_path: str, printer_name: str, api_dll: str = "", model: str = "pro",
+         job_name: str = "") -> tuple:
+    """3단계 — 만들어 둔 인쇄 데이터를 장비로 보낸다. CLI 의 `send -A … -P …` 에 해당한다.
+
+    문자열 세 개만 넘기는 함수라 구조체 배치와 무관하다. 즉 세대가 달라도 이 호출만은
+    안전하다. 인자 순서(프린터, 데이터, 잡 이름)는 벤더 편집기의 호출 형태를 따랐다.
+    """
+    lines = []
+    exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
+    api_dll = api_dll or _pick_api(exe)
+    if not api_dll:
+        return None, ["API 라이브러리를 찾지 못했습니다."]
+    if not os.path.isfile(data_path):
+        return None, [f"인쇄 데이터가 없습니다: {data_path}"]
+
+    prefix = garment_runtime.driver_file_prefix(api_dll)
+    lines.append(f"  전송 대상  : {printer_name}")
+    lines.append(f"  데이터     : {data_path} ({os.path.getsize(data_path):,} bytes)")
+    try:
+        lib = _load(api_dll)
+    except OSError as e:
+        return None, lines + [f"  로드 실패   : {e}"]
+
+    try:
+        fn = getattr(lib, f"{prefix}PrintData")
+        fn.restype = ctypes.c_int32
+        rc = fn(ctypes.c_wchar_p(printer_name),
+                ctypes.c_wchar_p(os.path.abspath(data_path)),
+                ctypes.c_wchar_p(job_name or os.path.basename(data_path)))
+    except Exception as e:
+        return None, lines + [f"  PrintData 호출 실패: {e}"]
+    lines.append(f"  PrintData  : {rc}")
+    return rc, lines
+
+
 def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro",
-              position: str = "", size: str = "") -> tuple:
+              position: str = "", size: str = "", overrides: dict = None) -> tuple:
     """2단계 시험 — 라이브러리를 직접 불러 PNG 에서 인쇄 데이터를 만든다.
 
     `PrintFile(입력경로, 옵션, RECT, 잡이름, BOOL)` 한 번으로 되는지 확인하는 것이 목적이다.
@@ -261,7 +349,7 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
 
     prefix = garment_runtime.driver_file_prefix(api_dll)
     option_type = option_type_for(api_dll, model)
-    opt = sample_option(option_type)
+    opt = sample_option(option_type, overrides)
     opt.szFileName = os.path.abspath(out_path).encode("utf-8", "ignore")[:MAX_PATH - 1]
     opt.szJobName = b"direct-call test"
 

@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 
 import config
+import garment_api
 import garment_runtime
 
 logger = logging.getLogger(__name__)
@@ -791,11 +792,52 @@ def _run_with_probe(args: list, printer_name: str = None) -> int:
     return last_rc if last_rc is not None else -1401
 
 
+def _api_backend_active(printer_name: str = "") -> bool:
+    """이번 작업을 라이브러리 직접 호출로 처리할지.
+
+    auto 는 **세대가 맞는 CLI 조합이 없을 때만** 직접 호출로 넘어간다. CLI 로 되는 현장의
+    동작은 그대로 두고, CLI 가 못 쓰는 현장만 구제하기 위해서다.
+    """
+    backend = getattr(config, "GARMENT_BACKEND", "cli")
+    if backend == "api":
+        return True
+    if backend != "auto":
+        return False
+    exe = _exe_for_model(_preferred_model_for_printer(printer_name)) or config.PRO_CLI_EXE
+    if not exe or not os.path.isfile(exe):
+        return False
+    embedded = garment_runtime.api_dll_for(exe)
+    installed = garment_runtime.installed_api_dlls(embedded)
+    # 임베드본이 드라이버와 맞으면 CLI 로 충분하다. 설치본만 있고 세대가 다르면 CLI 가 못 쓴다.
+    return bool(installed) and not any(_same_generation(exe, p) for p in installed)
+
+
 def create_arx4(xml_path: str, image_path: str, arx4_path: str,
                 position: str = None, size: str = None,
                 magnification: str = None, white: int = None,
-                printer_name: str = None) -> int:
-    """PNG + XML → ARX4 생성. (가먼트 CLI auto-probe 진입점)"""
+                printer_name: str = None, option_overrides: dict = None) -> int:
+    """PNG + XML → 인쇄 데이터 생성.
+
+    백엔드가 직접 호출이면 XML 없이 구조체로 바로 만든다. 그 경우 `xml_path` 는 쓰이지 않는다.
+    """
+    if _api_backend_active(printer_name or ""):
+        model = _model_for_exe(_exe_for_model(_preferred_model_for_printer(printer_name or "")) or "") or "pro"
+        if magnification and not size:
+            logger.warning("직접 호출 경로는 상대 배율(-R)을 아직 지원하지 않습니다 — 절대 크기로 넘겨야 합니다.")
+        rc, lines = garment_api.make_arxp(
+            image_path, arx4_path, model=model,
+            position=position or config.POSITION, size=size or "",
+            overrides=option_overrides or {},
+        )
+        for line in lines:
+            logger.info("%s", line)
+        if rc is None:
+            return -1401
+        if rc != 0:
+            desc = RETURN_CODES.get(rc, f"알 수 없는 에러 ({rc})")
+            logger.error("가먼트 API 직접 호출 실패 (rc=%s): %s", rc, desc)
+        return rc
+
     args = [
         "print",
         "-X", xml_path,
@@ -813,8 +855,18 @@ def create_arx4(xml_path: str, image_path: str, arx4_path: str,
 
 
 def send_to_printer(arx4_path: str, printer_name: str = None) -> int:
-    """ARX4 → 프린터 전송."""
+    """인쇄 데이터 → 프린터 전송."""
     target = printer_name or config.PRINTER_NAME
+    if _api_backend_active(target or ""):
+        model = _model_for_exe(_exe_for_model(_preferred_model_for_printer(target or "")) or "") or "pro"
+        rc, lines = garment_api.send(arx4_path, target, model=model)
+        for line in lines:
+            logger.info("%s", line)
+        if rc is None:
+            return -1801
+        if rc != 0:
+            logger.error("가먼트 API 전송 실패 (rc=%s)", rc)
+        return rc
     args = ["send", "-A", arx4_path, "-P", target]
     # -D(인쇄 후 자동 작업 삭제)는 GTXpro CMD 전용 옵션이다. GTX-4 CMD send 에
     # 넘기면 -3301(option cannot be used with send)로 실패하므로 pro 에서만 부여한다.

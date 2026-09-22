@@ -187,6 +187,8 @@ def _print_via_cli(
             position=position,
             size=size, magnification=magnification, white=config.WHITE_AS,
             printer_name=printer_name,
+            # 직접 호출 백엔드는 XML 대신 구조체로 값을 받는다. XML 에 실은 것과 같은 값을 넘긴다.
+            option_overrides={**xml_overrides, "platen_size": platen_idx},
         )
         if rc != 0:
             raise RuntimeError(f"인쇄 데이터 생성 실패 (코드: {rc})")

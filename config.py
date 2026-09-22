@@ -382,6 +382,19 @@ def _resolve_api_dll_mode() -> str:
     return value or "auto"
 
 
+def _resolve_backend() -> str:
+    """출력 백엔드.
+
+    cli(기본) = 벤더 CLI 경유 (지금까지의 동작)
+    api       = 라이브러리 직접 호출 (CLI 불필요, 드라이버 세대에 자동으로 맞음)
+    auto      = 세대가 맞는 CLI 조합이 없을 때만 직접 호출로 넘어감
+    """
+    value = _ini.get("garment_cli", "backend", fallback="cli").strip().lower()
+    return value if value in ("cli", "api", "auto") else "cli"
+
+
+GARMENT_BACKEND = _resolve_backend()
+
 # 드라이버 세대에 맞는 API 라이브러리를 고르기 위한 설정·상태.
 GARMENT_API_DLL = _resolve_api_dll_mode()
 # 설치본 라이브러리를 쓸 때 CLI exe 와 함께 복사해 두는 실행 폴더.
@@ -488,7 +501,7 @@ def set_appearance(value: str) -> None:
 def reload():
     """config.ini를 다시 읽어서 모듈 변수를 갱신한다."""
     global PRINTER_NAME, PRINTER_NAMES, PRINTER_MODE, LEGACY_CLI_EXE, PRO_CLI_EXE
-    global GARMENT_API_DLL
+    global GARMENT_API_DLL, GARMENT_BACKEND
     global GARMENT_PRINTER_NAME, GARMENT_PRINTER_NAMES, GARMENT_ENABLED, GARMENT_MODE
     global GARMENT_DISPATCH, GARMENT_PRINT_MODE, GARMENT_AUTO_DELETE
     global WORK_ORDER_PRINTER_NAME, WORK_ORDER_ENABLED
@@ -530,6 +543,7 @@ def reload():
     LEGACY_CLI_EXE = _resolve_legacy_cli()
     PRO_CLI_EXE = _resolve_pro_cli()
     GARMENT_API_DLL = _resolve_api_dll_mode()
+    GARMENT_BACKEND = _resolve_backend()
 
     g = _load_cli_params()
     GTX_CLI = g["GTX_CLI"] if g["GTX_CLI"] in ("auto", "pro", "legacy") else "auto"
