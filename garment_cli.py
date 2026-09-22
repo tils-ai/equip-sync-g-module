@@ -247,7 +247,15 @@ def _candidate_apis(exe: str) -> list:
 
     cached = _load_active_api()
     if cached is not None:
-        return [cached]
+        # 확정본도 세대 검사를 통과해야 한다. 세대 판정이 생기기 전에 확정된 것이 파일로 남아
+        # 있으면, 버전을 올려도 그 조합을 계속 쓰게 된다(현장에서 실제로 그랬다).
+        if cached == "" or mode != "auto" or _same_generation(exe, cached):
+            return [cached]
+        logger.warning(
+            "확정돼 있던 API 가 CLI 와 세대가 달라 폐기합니다: %s",
+            garment_runtime.describe_file(cached),
+        )
+        _clear_active_api()
 
     embedded = garment_runtime.api_dll_for(exe)
     installed = garment_runtime.installed_api_dlls(embedded)
