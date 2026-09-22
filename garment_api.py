@@ -618,8 +618,13 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
 
     if os.path.isfile(out_path):
         lines.append(f"  생성 결과  : {os.path.getsize(out_path):,} bytes")
+    elif rc == 0:
+        # 이 경로는 프린터를 열어 픽셀을 밀어 넣는다. 파일이 없다는 것은 장비로 바로 나갔다는
+        # 뜻이다. 뒤이어 전송까지 하면 같은 옷에 두 번 찍힌다. 호출자에게 알린다.
+        lines.append("DIRECT_SENT")
+        lines.append("  생성 결과  : 파일 없음 : 장비로 직접 나갔습니다. 별도 전송은 건너뜁니다.")
     else:
-        lines.append("  생성 결과  : 파일 없음 (장비로 직접 나갔을 수 있음)")
+        lines.append("  생성 결과  : 파일 없음")
     lines.close()
     return rc, list(lines)
 

@@ -101,6 +101,9 @@ _active_api: str | None = None
 # 세대 불일치 안내를 프로세스당 1회만 남기기 위한 플래그.
 _mismatch_logged = False
 
+# 직접 호출이 장비로 바로 내보냈는지. True 면 뒤따르는 전송을 건너뛴다(두 번 찍힘 방지).
+_direct_sent = False
+
 
 def _model_for_exe(exe: str) -> str:
     base = os.path.basename(exe or "").lower()
@@ -880,8 +883,11 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
     if str(getattr(config, "API_IMAGE_PATH", "rgba")).lower() == "rgba":
         rc, lines = _rgba_isolated(image_path, out_path, printer, model, overrides,
                                    position or config.POSITION, size or "")
+        global _direct_sent
+        _direct_sent = any("DIRECT_SENT" in line for line in lines)
         for line in lines:
-            logger.info("%s", line)
+            if "DIRECT_SENT" != line.strip():
+                logger.info("%s", line)
         if rc == 0:
             return rc, []
         # 알파를 살리는 경로가 안 되면 출력 자체를 멈추지는 않는다. 파일 경로로 내려가되
@@ -1081,6 +1087,9 @@ def send_to_printer(arx4_path: str, printer_name: str = None) -> int:
     """인쇄 데이터 → 프린터 전송."""
     target = printer_name or config.PRINTER_NAME
     if _api_backend_active(target or ""):
+        if _direct_sent:
+            logger.info("  전송 생략 : 인쇄 데이터 생성 단계에서 장비로 이미 나갔습니다.")
+            return 0
         model = _model_for_exe(_exe_for_model(_preferred_model_for_printer(target or "")) or "") or "pro"
         rc = _send_isolated(arx4_path, target, model)
         if rc is None:
