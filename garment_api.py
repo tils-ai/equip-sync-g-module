@@ -724,15 +724,15 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
     except Exception as e:
         lines.append(f"  close 실패: {e}")
 
-    if os.path.isfile(out_path):
-        lines.append(f"  생성 결과  : {os.path.getsize(out_path):,} bytes")
-    elif rc == 0:
-        # 이 경로는 프린터를 열어 픽셀을 밀어 넣는다. 파일이 없다는 것은 장비로 바로 나갔다는
-        # 뜻이다. 뒤이어 전송까지 하면 같은 옷에 두 번 찍힌다. 호출자에게 알린다.
+    size = os.path.getsize(out_path) if os.path.isfile(out_path) else 0
+    if rc == 0:
+        # 이 경로는 프린터를 열어 픽셀을 밀어 넣고 닫는다. **닫는 순간 장비로 나간다.**
+        # 파일은 껍데기만 남는다(현장에서 16바이트). 그 파일을 뒤이어 또 전송하면 빈 작업이
+        # 장비에 하나 더 들어간다. 호출자에게 이미 나갔다고 알린다.
         lines.append("DIRECT_SENT")
-        lines.append("  생성 결과  : 파일 없음 : 장비로 직접 나갔습니다. 별도 전송은 건너뜁니다.")
+        lines.append(f"  전송 완료  : 닫는 순간 장비로 나갔습니다 (남은 파일 {size:,} bytes 는 껍데기)")
     else:
-        lines.append("  생성 결과  : 파일 없음")
+        lines.append(f"  생성 결과  : {size:,} bytes")
     lines.close()
     return rc, list(lines)
 
