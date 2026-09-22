@@ -327,9 +327,12 @@ class DesignCard(ctk.CTkFrame):
             self._status_lbl.configure(text=f"실패 — {reason} · 잉크 선택 후 재시도" if reason else "전송 실패 · 재시도",
                                        text_color=theme.DANGER)
         elif status == "done":
-            self._btns.grid_remove()
+            # 완료 후에도 버튼을 살려 둔다. 장비가 못 받았거나 다시 뽑아야 할 때 카드를 지우고
+            # 관리자에서 재출력을 걸 필요 없이 여기서 바로 다시 보낼 수 있어야 한다.
+            self._btns.grid()
+            self._set_buttons("normal")
             self._status_lbl.grid()
-            self._status_lbl.configure(text="✅ 전송완료", text_color=theme.SUCCESS)
+            self._status_lbl.configure(text="✅ 전송완료 · 다시 보낼 수 있습니다", text_color=theme.SUCCESS)
 
     def set_printing(self, printer: str) -> None:
         suffix = f" · {printer}" if printer else ""

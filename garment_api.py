@@ -578,8 +578,10 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
     prefix = garment_runtime.driver_file_prefix(api_dll)
     option_type = option_type_for(api_dll, model)
     opt = sample_option(option_type, overrides)
-    opt.szFileName = os.path.abspath(out_path).encode("utf-8", "ignore")[:MAX_PATH - 1]
-    opt.szJobName = b"direct-call"
+    # 이 경로는 프린터로 직접 보낸다. 옵션에 출력 파일 경로를 실으면 장비 대신 파일로 빠질 수
+    # 있다(현장에서 16바이트 껍데기만 남고 장비는 못 받았다). 파일명은 비우고 잡 이름만 준다.
+    opt.szFileName = b""
+    opt.szJobName = os.path.basename(png_path).encode("utf-8", "ignore")[:JOB_NAME_LEN - 1]
 
     pos_x10, pos_y10 = _parse_pos(position or getattr(config, "POSITION", "00000000"))
     size_w10, size_h10 = _parse_pos(size or getattr(config, "SIZE", "") or "00000000")
@@ -726,6 +728,7 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
 
     size = os.path.getsize(out_path) if os.path.isfile(out_path) else 0
     if rc == 0:
+        lines.append("  ※ 반환값 0 은 호출이 통과했다는 뜻이지 장비가 받았다는 확인은 아닙니다.")
         # 이 경로는 프린터를 열어 픽셀을 밀어 넣고 닫는다. **닫는 순간 장비로 나간다.**
         # 파일은 껍데기만 남는다(현장에서 16바이트). 그 파일을 뒤이어 또 전송하면 빈 작업이
         # 장비에 하나 더 들어간다. 호출자에게 이미 나갔다고 알린다.
