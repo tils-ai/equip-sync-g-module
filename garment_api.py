@@ -447,15 +447,14 @@ PRINTFILE_VARIANTS = {
 def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
     """라이브러리에 넘기기 전 이미지를 다듬는다. 원본은 건드리지 않는다.
 
-    두 가지를 맞춘다.
+    **알파는 건드리지 않는다.** 한때 컬러 전용일 때 알파를 흰색으로 눕혔는데 그 자체가 틀린
+    처리였다. 흰옷 출력(byInk=0)에서 흰색은 곧 "잉크 없음"이라 알파는 그대로 둬도 안 찍히고,
+    컬러옷(byInk=1·2)은 알파에서 화이트 밑판을 만들므로 눕히면 이미지 전체에 흰 판이 깔린다.
+    치환이 필요한 방향이 있다면 흰색 -> 알파이지 그 반대가 아니다. 반투명 가장자리에 흰 테두리를
+    만드는 부작용도 있다. 그래서 기본은 손대지 않음이고, 설정으로만 켤 수 있게 남긴다.
 
-    1. **DPI 를 박는다.** 디자인 PNG 에는 DPI 정보가 없다. 그러면 라이브러리가 자기 기준으로
-       해석해 실제 크기가 어긋난다(현장에서 가로세로 절반, 면적 1/4 로 나왔다). CLI 경로는
-       절대 크기(-S)로 넘겨 이 문제를 피했는데, 직접 호출에서는 RECT 만으로는 부족했다.
-    2. **컬러 전용일 때 알파를 흰색으로 눕힌다.** PrintFile 경로는 알파를 무시해 투명 배경이
-       그대로 찍힌다. 컬러 전용(byInk=0)에서는 흰색이 "잉크 없음"이므로 눕혀도 결과가 같고,
-       무시되는 것보다 안전하다. 화이트 잉크를 쓰는 조합(byInk=1·2)은 알파에서 화이트 밑판을
-       만들므로 **절대 눕히지 않는다** : 눕히면 이미지 전체에 흰 판이 깔린다.
+    DPI 는 없을 때만 박는다. 크기는 RECT 가 정하므로 지금은 영향이 없지만, 값이 비어 있는
+    것보다는 명시된 편이 낫다. 픽셀은 바뀌지 않는다.
     """
     try:
         from PIL import Image
@@ -463,16 +462,13 @@ def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
         lines.append("  이미지 보정: PIL 없음, 원본 그대로 사용")
         return png_path
 
-    flatten_mode = str(getattr(config, "API_FLATTEN_ALPHA", "auto")).lower()
+    flatten_mode = str(getattr(config, "API_FLATTEN_ALPHA", "never")).lower()
     dpi = int(getattr(config, "RENDER_DPI", 300) or 300)
     try:
         with Image.open(png_path) as img:
             has_dpi = bool(img.info.get("dpi"))
             has_alpha = img.mode in ("RGBA", "LA") or "transparency" in img.info
-            flatten = has_alpha and (
-                flatten_mode == "always"
-                or (flatten_mode == "auto" and int(opt.byInk) == 0)
-            )
+            flatten = has_alpha and flatten_mode == "always"
             if has_dpi and not flatten:
                 lines.append(f"  이미지 보정: 불필요 (dpi={img.info.get('dpi')}, 알파={has_alpha})")
                 return png_path
@@ -488,8 +484,8 @@ def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
         return png_path
 
     lines.append(
-        f"  이미지 보정: dpi={dpi} 기입"
-        + (", 알파를 흰색으로 눕힘(컬러 전용)" if flatten else "")
+        f"  이미지 보정: dpi={dpi} 기입 (알파 보존)"
+        + (", 설정에 따라 알파를 흰색으로 눕힘" if flatten else "")
     )
     return out
 

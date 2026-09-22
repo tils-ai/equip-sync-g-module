@@ -408,8 +408,9 @@ def _resolve_backend() -> str:
 
 
 GARMENT_BACKEND = _resolve_backend()
-# 직접 호출에서 알파를 흰색으로 눕힐지: auto(컬러 전용일 때만) / always / never
-API_FLATTEN_ALPHA = _ini.get("garment_cli", "api_flatten_alpha", fallback="auto").strip().lower()
+# 알파 평탄화는 기본 안 함. 흰옷은 알파가 곧 잉크 없음이고, 컬러옷은 알파에서 화이트
+# 밑판을 만든다. 어느 쪽도 눕히면 안 된다. 진단 목적일 때만 always 로 켠다.
+API_FLATTEN_ALPHA = _ini.get("garment_cli", "api_flatten_alpha", fallback="never").strip().lower()
 # 직접 호출의 RECT 는 장비 도트 단위다. 0.1mm 설정값을 이 해상도로 환산해 넘긴다.
 try:
     API_RECT_DPI = _ini.getint("garment_cli", "api_rect_dpi", fallback=1200)
