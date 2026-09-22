@@ -369,6 +369,26 @@ PRO_CLI_EXE = _resolve_pro_cli()
 # auto-probe 로 확정된 가먼트 CLI 계열("legacy"/"pro")을 기록·재사용하는 상태 파일.
 ACTIVE_CMD_STATE = os.path.join(BASE_DIR, ".active_garment_cmd")
 
+
+def _resolve_api_dll_mode() -> str:
+    """API 라이브러리 선택 방식.
+
+    auto      = 임베드본 먼저, 드라이버 매칭 실패면 설치본으로 재시도 (기본)
+    embedded  = 임베드본만
+    installed = 설치본 먼저
+    <경로>    = 그 파일로 고정
+    """
+    value = _ini.get("garment_cli", "api_dll", fallback="auto").strip()
+    return value or "auto"
+
+
+# 드라이버 세대에 맞는 API 라이브러리를 고르기 위한 설정·상태.
+GARMENT_API_DLL = _resolve_api_dll_mode()
+# 설치본 라이브러리를 쓸 때 CLI exe 와 함께 복사해 두는 실행 폴더.
+GARMENT_RUNTIME_DIR = os.path.join(BASE_DIR, "garment-runtime")
+# probe 로 확정된 API 라이브러리 경로("" = 임베드본)를 기록·재사용하는 상태 파일.
+ACTIVE_API_STATE = os.path.join(BASE_DIR, ".active_garment_api")
+
 # --- folder (spec §11.5 — incoming/processing/done/done/originals/error/logs 통일) ---
 def _path_fallback(paths_key: str, legacy_section: str, legacy_key: str, default_sub: str) -> str:
     val = _ini.get("paths", paths_key, fallback="").strip()
@@ -468,6 +488,7 @@ def set_appearance(value: str) -> None:
 def reload():
     """config.ini를 다시 읽어서 모듈 변수를 갱신한다."""
     global PRINTER_NAME, PRINTER_NAMES, PRINTER_MODE, LEGACY_CLI_EXE, PRO_CLI_EXE
+    global GARMENT_API_DLL
     global GARMENT_PRINTER_NAME, GARMENT_PRINTER_NAMES, GARMENT_ENABLED, GARMENT_MODE
     global GARMENT_DISPATCH, GARMENT_PRINT_MODE, GARMENT_AUTO_DELETE
     global WORK_ORDER_PRINTER_NAME, WORK_ORDER_ENABLED
@@ -508,6 +529,7 @@ def reload():
     PRINTER_MODE = GARMENT_MODE
     LEGACY_CLI_EXE = _resolve_legacy_cli()
     PRO_CLI_EXE = _resolve_pro_cli()
+    GARMENT_API_DLL = _resolve_api_dll_mode()
 
     g = _load_cli_params()
     GTX_CLI = g["GTX_CLI"] if g["GTX_CLI"] in ("auto", "pro", "legacy") else "auto"

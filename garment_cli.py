@@ -1,6 +1,8 @@
 """가먼트 CLI 래퍼 - subprocess로 호출, 리턴 코드 해석.
 
 legacy/pro 두 계열의 가먼트 CLI 를 auto-probe 로 선택한다(실제 벤더 도구는 빌드 시 중립명으로 복원됨).
+API 라이브러리도 같은 방식으로 고른다 — 임베드본이 드라이버 세대와 안 맞으면(-1401 등)
+그 PC 에 설치된 것으로 재시도한다. 배경은 `garment_runtime` 모듈 주석 참조.
 """
 
 import csv
@@ -11,6 +13,7 @@ import subprocess
 import tempfile
 
 import config
+import garment_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,10 @@ _DRIVER_MISMATCH_CODES = {-1001, -1401, -1403, -1701}
 
 # auto-probe 로 확정된 가먼트 CLI exe 경로 (프로세스 메모리 캐시).
 _active_exe: str | None = None
+
+# auto-probe 로 확정된 API 라이브러리 경로 (프로세스 메모리 캐시).
+# "" = 임베드본 확정, None = 아직 미확정.
+_active_api: str | None = None
 
 
 def _model_for_exe(exe: str) -> str:
@@ -137,6 +144,63 @@ def _clear_active_exe() -> None:
         pass
 
 
+def _load_active_api() -> str | None:
+    """확정된 API 라이브러리 경로. "" = 임베드본, None = 미확정."""
+    global _active_api
+    if _active_api is not None:
+        if _active_api == "" or os.path.isfile(_active_api):
+            return _active_api
+        _active_api = None
+    try:
+        with open(config.ACTIVE_API_STATE, encoding="utf-8") as f:
+            saved = f.read().strip()
+    except OSError:
+        return None
+    if saved and not os.path.isfile(saved):
+        return None  # 설치본이 사라짐(드라이버 재설치 등) → 재probe
+    _active_api = saved
+    return saved
+
+
+def _save_active_api(api_dll: str) -> None:
+    global _active_api
+    _active_api = api_dll
+    try:
+        with open(config.ACTIVE_API_STATE, "w", encoding="utf-8") as f:
+            f.write(api_dll)
+    except OSError:
+        logger.warning("active 가먼트 API 상태 저장 실패: %s", config.ACTIVE_API_STATE)
+
+
+def _clear_active_api() -> None:
+    global _active_api
+    _active_api = None
+    try:
+        os.remove(config.ACTIVE_API_STATE)
+    except OSError:
+        pass
+
+
+def _candidate_apis(exe: str) -> list:
+    """이 exe 로 시도할 API 라이브러리 목록. "" = 임베드본(복사 없이 그대로 실행).
+
+    기본 auto 는 **임베드본 먼저**다. 지금 잘 돌고 있는 현장의 동작을 바꾸지 않기 위해서다.
+    드라이버 매칭 실패 계열이 나올 때만 설치본으로 넘어가고, 성공한 쪽을 확정·재사용한다.
+    """
+    mode = getattr(config, "GARMENT_API_DLL", "auto") or "auto"
+    if mode not in ("auto", "embedded", "installed"):
+        return [mode] if os.path.isfile(mode) else [""]
+    if mode == "embedded":
+        return [""]
+
+    cached = _load_active_api()
+    if cached is not None:
+        return [cached]
+
+    installed = garment_runtime.installed_api_dlls(garment_runtime.api_dll_for(exe))
+    return installed + [""] if mode == "installed" else [""] + installed
+
+
 def _candidate_exes(printer_name: str = "") -> list:
     """probe 후보 — 프린터 계열이 명확하면 해당 CLI만 사용한다."""
     preferred = _preferred_model_for_printer(printer_name)
@@ -168,6 +232,19 @@ def describe_cli_selection(printer_name: str = "") -> str:
         f"preferred={preferred or 'auto'}, "
         f"candidates={', '.join(candidate_labels) or '(none)'}"
     )
+
+
+def describe_versions(printer_name: str = "") -> str:
+    """현재 조합의 버전 요약 — CLI · API 라이브러리 · 드라이버측 파일."""
+    exe = (
+        _load_active_exe()
+        or _exe_for_model(_preferred_model_for_printer(printer_name))
+        or config.PRO_CLI_EXE
+        or config.LEGACY_CLI_EXE
+    )
+    if not exe or not os.path.isfile(exe):
+        return "(가먼트 CLI 없음)"
+    return garment_runtime.version_summary(exe, _load_active_api() or "")
 
 
 def printer_driver_summary(printer_name: str | None) -> str:
@@ -207,12 +284,19 @@ def _normalize_returncode(rc: int) -> int:
     return rc
 
 
-def _run(args: list, exe: str = None, printer_name: str = None) -> int:
+def _run(args: list, exe: str = None, printer_name: str = None,
+         api_dll: str = None) -> int:
     """가먼트 CLI 실행, 리턴 코드 반환.
 
     exe 미지정 시 auto-probe 로 확정된 CLI → legacy 계열 순으로 사용한다.
     (send/status/제어 등은 exe 를 넘기지 않으므로 자동으로 확정 CLI 를 재사용)
+
+    api_dll 미지정 시 확정된 API 라이브러리를 재사용한다. 값이 있으면(설치본) CLI 와
+    그 라이브러리만 담은 실행 폴더를 만들어 거기서 돌린다 — Windows 는 exe 폴더의
+    DLL 을 먼저 집으므로, 이것이 어떤 라이브러리가 쓰일지 확정하는 유일한 방법이다.
     """
+    if api_dll is None:
+        api_dll = _load_active_api() or ""
     if exe is None:
         preferred = _preferred_model_for_printer(printer_name or "")
         preferred_exe = _exe_for_model(preferred)
@@ -226,10 +310,11 @@ def _run(args: list, exe: str = None, printer_name: str = None) -> int:
             "가먼트 CLI 경로가 설정되지 않았습니다. "
             "config.ini [garment_cli] cli_legacy_path / cli_pro_path 또는 .source 폴더를 확인하세요."
         )
-    cmd = [exe] + args
+    run_exe = garment_runtime.prepare(exe, api_dll) if api_dll else exe
+    cmd = [run_exe] + args
     # CLI exe 와 동봉 DLL/드라이버 자료가 같은 폴더에 있어야 정상 동작.
     # cwd 를 exe 폴더로 강제해 Graphiclabs 와 동일한 실행 컨텍스트 보장.
-    cwd = os.path.dirname(exe) or None
+    cwd = os.path.dirname(run_exe) or None
     logger.debug("실행 (cwd=%s): %s", cwd, " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, timeout=120, cwd=cwd)
     rc = _normalize_returncode(result.returncode)
@@ -245,7 +330,7 @@ def _run(args: list, exe: str = None, printer_name: str = None) -> int:
         if rc in _FILE_MISSING_CODES:
             try:
                 report_path = _write_diagnostic_report(
-                    exe, cwd, args, rc, result.stdout, result.stderr,
+                    run_exe, cwd, args, rc, result.stdout, result.stderr,
                     printer_name=printer_name,
                 )
                 logger.error("진단 보고서 저장됨: %s", report_path)
@@ -258,6 +343,13 @@ def _run(args: list, exe: str = None, printer_name: str = None) -> int:
                 os.path.basename(exe), rc,
             )
             _clear_active_exe()
+        # API 라이브러리도 같은 신호로 재탐색 대상이다 (드라이버를 올린 직후 등).
+        if rc in _DRIVER_MISMATCH_CODES and api_dll == _active_api:
+            logger.warning(
+                "확정 가먼트 API(%s) 매칭 실패(rc=%d) → 캐시 폐기, 다음 작업에서 재탐색",
+                os.path.basename(api_dll) if api_dll else "임베드본", rc,
+            )
+            _clear_active_api()
     return rc
 
 
@@ -308,26 +400,29 @@ def _check_zone_identifier(path: str) -> str:
 
 
 def _check_architecture(path: str) -> str:
-    """PE 헤더 IMAGE_FILE_MACHINE → 아키텍처 문자열."""
+    """PE 헤더 IMAGE_FILE_MACHINE → 아키텍처 문자열.
+
+    관리(.NET) 실행파일은 machine 이 x86 으로 찍혀도 AnyCPU 면 64비트로 뜬다.
+    machine 만 보고 "32-bit" 라고 적으면 64비트 라이브러리와 짝이 안 맞는 것처럼 보여
+    엉뚱한 곳을 파게 된다(실제로 그랬다). CLR 헤더 플래그까지 봐야 한다.
+    """
     if not os.path.isfile(path):
         return "(파일 없음)"
-    try:
-        with open(path, "rb") as f:
-            if f.read(2) != b"MZ":
-                return "PE 아님 (MZ 시그니처 없음)"
-            f.seek(0x3C)
-            pe_offset = int.from_bytes(f.read(4), "little")
-            f.seek(pe_offset)
-            if f.read(4) != b"PE\x00\x00":
-                return "PE 시그니처 없음"
-            machine = int.from_bytes(f.read(2), "little")
-    except OSError as e:
-        return f"확인 실패: {e}"
-    return {
+    machine, cor_flags = garment_runtime.pe_machine_and_corflags(path)
+    if machine is None:
+        return "PE 아님 또는 헤더 읽기 실패"
+    label = {
         0x014C: "x86 (32-bit)",
         0x8664: "x64 (64-bit)",
         0xAA64: "ARM64",
     }.get(machine, f"알 수 없음 (machine=0x{machine:04X})")
+    if cor_flags is None:
+        return label
+    if cor_flags & 0x2:
+        return "x86 (32-bit) — .NET 32BITREQUIRED"
+    if cor_flags & 0x20000:
+        return "x86 우선 — .NET 32BITPREFERRED (64비트 OS 에서도 32비트로 실행)"
+    return ".NET AnyCPU (64비트 OS 에서 64비트로 실행 — machine 값은 x86 으로 표기됨)"
 
 
 def _check_vcruntime() -> list[tuple[str, bool]]:
@@ -406,6 +501,8 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
     L.append(f"  전달 args    : {' '.join(args)}")
     L.append(f"  GTX mode     : {describe_cli_selection(target_printer)}")
     L.append(f"  Printer info : {printer_driver_summary(target_printer)}")
+    L.append(f"  버전 조합    : {describe_versions(target_printer)}")
+    L.append(f"  API 선택     : {getattr(config, 'GARMENT_API_DLL', 'auto')}")
 
     L.append("")
     L.append("[2] CLI exe / API DLL 점검")
@@ -465,7 +562,8 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
     L.append("[6] Brother 프린터 드라이버 (Get-PrinterDriver)")
     L.append(_ps(
         "$d = Get-PrinterDriver | Where-Object { $_.Name -match 'GTX|Brother' }; "
-        "if ($d) { ($d | Select-Object Name,Manufacturer,InfPath | "
+        "if ($d) { ($d | Select-Object Name,Manufacturer,DriverVersion,MajorVersion,"
+        "ConfigFile,DataFile,DriverPath,InfPath | "
         "Format-List | Out-String).Trim() } else { '가먼트 프린터 드라이버 없음 — "
         "벤더 공식 설치 프로그램으로 가먼트 프린터 드라이버 설치 필요' }"
     ))
@@ -477,6 +575,32 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
         "if ($p) { ($p | Select-Object Name,DriverName,PortName,PrinterStatus | "
         "Format-List | Out-String).Trim() } else { 'Brother/GTX 프린터 없음' }"
     ))
+
+    L.append("")
+    L.append("[7b] 드라이버측 처리 모듈 / API 라이브러리 후보")
+    L.append("  API 라이브러리는 아래 드라이버측 모듈을 찾아 로드한다. -1401 은 그 탐색 실패다.")
+    used_api = garment_runtime.api_dll_for(exe)
+    origin_exe = _exe_for_model(_model_for_exe(exe)) or exe
+    embedded_api = garment_runtime.api_dll_for(origin_exe)
+    L.append(f"  이번 실행 API: {garment_runtime.describe_file(used_api)}")
+    L.append(f"  임베드 API   : {garment_runtime.describe_file(embedded_api)}")
+    active_api = _load_active_api()
+    L.append(
+        "  확정 API     : "
+        + ("(미확정)" if active_api is None else
+           garment_runtime.describe_file(active_api) if active_api else "임베드본")
+    )
+    L.append(f"  스풀 드라이버 폴더: {garment_runtime.spool_driver_dir()}")
+    driver_modules = garment_runtime.driver_files(garment_runtime.driver_file_prefix(embedded_api))
+    if driver_modules:
+        for line in driver_modules:
+            L.append(f"    {line}")
+    else:
+        L.append("    (해당 계열 드라이버 파일 없음 — 드라이버 미설치 또는 다른 계열)")
+    installed = garment_runtime.installed_api_dlls(embedded_api)
+    L.append(f"  설치된 동일 이름 라이브러리 {len(installed)}개")
+    for installed_path in installed:  # `path`(보고서 저장 경로)를 가리지 않도록 별도 이름
+        L.append(f"    {garment_runtime.describe_file(installed_path)}")
 
     L.append("")
     L.append("[8] 가먼트 CLI 표준 출력")
@@ -511,17 +635,23 @@ def _run_with_probe(args: list, printer_name: str = None) -> int:
         return _run(args, printer_name=printer_name)  # 설정 없음 → 기존 경로(FileNotFoundError) 위임
     last_rc = None
     for exe in candidates:
-        rc = _run(args, exe=exe, printer_name=printer_name)
-        if rc == 0:
-            if exe != _active_exe:
-                _save_active_exe(exe)
-                logger.info("가먼트 CLI 확정: %s", os.path.basename(exe))
-            return 0
-        if rc not in _DRIVER_MISMATCH_CODES:
-            return rc  # 입력 오류 등 — fallback 무의미
-        last_rc = rc
-    logger.error("모든 가먼트 CLI 매칭 실패 (마지막 rc=%s)", last_rc)
+        for api_dll in _candidate_apis(exe):
+            rc = _run(args, exe=exe, printer_name=printer_name, api_dll=api_dll)
+            if rc == 0:
+                if exe != _active_exe:
+                    _save_active_exe(exe)
+                    logger.info("가먼트 CLI 확정: %s", os.path.basename(exe))
+                if api_dll != _active_api:
+                    _save_active_api(api_dll)
+                    logger.info("가먼트 API 확정: %s", garment_runtime.describe_file(api_dll)
+                                if api_dll else "임베드본")
+                return 0
+            if rc not in _DRIVER_MISMATCH_CODES:
+                return rc  # 입력 오류 등 — fallback 무의미
+            last_rc = rc
+    logger.error("모든 가먼트 CLI/API 조합 매칭 실패 (마지막 rc=%s)", last_rc)
     _clear_active_exe()
+    _clear_active_api()
     return last_rc if last_rc is not None else -1401
 
 
