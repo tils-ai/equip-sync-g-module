@@ -1,8 +1,53 @@
 """가먼트 CLI용 인쇄 설정 XML 생성."""
 
+import logging
 import xml.etree.ElementTree as ET
 
 import config
+
+logger = logging.getLogger(__name__)
+
+# 가이드 3-1-2 요소별 유효 범위 (legacy/pro 공통 — 두 가이드가 같은 값을 정의한다).
+# 범위를 벗어나면 CLI 가 -11xx 로 즉시 실패한다. 설정 화면의 고급 항목이 자유 입력이라
+# 0 같은 값이 들어가기 쉬운데, 그 실패는 코드 번호로만 보여 현장에서 원인을 못 찾는다.
+# 여기서 범위 안으로 당기고 무엇을 바꿨는지 로그에 남긴다.
+_VALUE_RANGES = {
+    "uiCopies": (1, 999),
+    "byPlatenSize": (0, 4),
+    "byInk": (0, 2),
+    "byResolution": (1, 1),
+    "byHighlight": (1, 9),
+    "byMask": (1, 5),
+    "byInkVolume": (1, 10),
+    "byDoublePrint": (0, 3),
+    "byTolerance": (0, 50),
+    "byMinWhite": (1, 6),
+    "byChoke": (0, 10),
+    "bySaturation": (0, 40),
+    "byBrightness": (0, 40),
+    "byContrast": (0, 40),
+    "iCyanBalance": (-5, 5),
+    "iMagentaBalance": (-5, 5),
+    "iYellowBalance": (-5, 5),
+    "iBlackBalance": (-5, 5),
+}
+
+
+def _clamped(tag: str, value: str) -> str:
+    """유효 범위를 벗어난 값을 경계로 당긴다. 보정하면 경고 로그를 남긴다."""
+    bounds = _VALUE_RANGES.get(tag)
+    if not bounds:
+        return value
+    low, high = bounds
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        logger.warning("XML %s 값 %r 이 숫자가 아님 → %d 으로 보정", tag, value, low)
+        return str(low)
+    fixed = max(low, min(high, number))
+    if fixed != number:
+        logger.warning("XML %s 값 %d 이 유효 범위(%d~%d) 밖 → %d 으로 보정", tag, number, low, high, fixed)
+    return str(fixed)
 
 
 def build_xml(output_path: str, **overrides):
@@ -120,7 +165,7 @@ def build_xml(output_path: str, **overrides):
 
     for tag, value in elements:
         el = ET.SubElement(root, tag)
-        el.text = value
+        el.text = _clamped(tag, value)
 
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")
