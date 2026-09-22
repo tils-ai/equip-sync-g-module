@@ -87,6 +87,9 @@ from gui import WatcherApp
 
 def main():
     setup_logging()
+    logging.getLogger(__name__).info(
+        "=== 실행 빌드: %s · 출력 경로: %s ===", config.APP_VERSION, config.GARMENT_BACKEND
+    )
     if "--api-selftest" in sys.argv:
         raise SystemExit(run_api_selftest())
     if "--api-makearxp" in sys.argv:

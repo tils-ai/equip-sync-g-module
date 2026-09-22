@@ -13,6 +13,20 @@ def _base_dir():
 BASE_DIR = _base_dir()
 INI_PATH = os.path.join(BASE_DIR, "config.ini")
 
+
+def _app_version() -> str:
+    """실행 중인 빌드 이름. 배포 EXE 는 파일명에 버전이 들어 있다.
+
+    현장 로그·진단서에 어느 빌드인지 남지 않아, 고친 버전이 실제로 돌고 있는지 매번
+    되물어야 했다. 별도 상수를 두면 태그와 어긋나므로 파일명을 그대로 쓴다.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.splitext(os.path.basename(sys.executable))[0]
+    return "개발 실행(소스)"
+
+
+APP_VERSION = _app_version()
+
 _DEFAULT_INI = """\
 [printer]
 ; ── 가먼트 디자인 프린터 ──

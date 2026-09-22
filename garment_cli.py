@@ -616,6 +616,8 @@ def _write_diagnostic_report(exe: str, cwd: str | None, args: list, rc: int,
     L.append(f"  Printer info : {printer_driver_summary(target_printer)}")
     L.append(f"  버전 조합    : {describe_versions(target_printer)}")
     L.append(f"  API 선택     : {getattr(config, 'GARMENT_API_DLL', 'auto')}")
+    L.append(f"  출력 경로    : {getattr(config, 'GARMENT_BACKEND', 'cli')}")
+    L.append(f"  실행 빌드    : {getattr(config, 'APP_VERSION', '?')}")
 
     L.append("")
     L.append("[2] CLI exe / API DLL 점검")
