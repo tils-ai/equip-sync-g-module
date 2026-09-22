@@ -573,10 +573,16 @@ def printer_jobs(printer_name: str) -> str:
         import win32print
     except ImportError:
         return "(win32print 없음)"
+    jobs = None
     try:
         handle = win32print.OpenPrinter(printer_name)
         try:
-            jobs = win32print.EnumJobs(handle, 0, 99, 1)
+            # level 1 은 제출 시각을 변환하느라 win32timezone 을 끌어온다. 없으면 level 0 으로
+            # 내려간다 : 개수만 알아도 "장비로 나갔는가"는 판정된다.
+            try:
+                jobs = win32print.EnumJobs(handle, 0, 99, 1)
+            except Exception:
+                jobs = win32print.EnumJobs(handle, 0, 99, 0)
         finally:
             win32print.ClosePrinter(handle)
     except Exception as e:
@@ -585,10 +591,13 @@ def printer_jobs(printer_name: str) -> str:
         return "작업 없음"
     out = []
     for job in jobs[:5]:
-        out.append(
-            f"#{job.get('JobId')} {job.get('pDocument') or '(이름없음)'} "
-            f"상태={job.get('Status')} {job.get('Size', 0):,}B"
-        )
+        try:
+            out.append(
+                f"#{job.get('JobId')} {job.get('pDocument') or '(이름없음)'} "
+                f"상태={job.get('Status')} {job.get('Size', 0):,}B"
+            )
+        except Exception:
+            out.append(str(job)[:80])
     return f"{len(jobs)}건 : " + " | ".join(out)
 
 

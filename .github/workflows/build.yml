@@ -58,6 +58,7 @@ jobs:
         run: |
           pyinstaller --onefile --windowed `
             --hidden-import=win32print `
+            --hidden-import=win32timezone `
             --hidden-import=win32ui `
             --hidden-import=win32api `
             --hidden-import=requests `

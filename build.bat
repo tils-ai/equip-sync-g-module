@@ -4,6 +4,7 @@ REM 가명 자산(vendor/) → 임시 .source/ 로 복원 (원본 이름 매핑�
 python scripts\restore_vendor.py || exit /b 1
 pyinstaller --onefile --windowed ^
     --hidden-import=win32print ^
+    --hidden-import=win32timezone ^
     --hidden-import=win32ui ^
     --hidden-import=win32api ^
     --hidden-import=device_status ^
