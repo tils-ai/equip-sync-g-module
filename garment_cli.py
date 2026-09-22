@@ -249,10 +249,49 @@ def _candidate_apis(exe: str) -> list:
     if cached is not None:
         return [cached]
 
-    installed = garment_runtime.installed_api_dlls(garment_runtime.api_dll_for(exe))
+    embedded = garment_runtime.api_dll_for(exe)
+    installed = garment_runtime.installed_api_dlls(embedded)
     if mode == "installed":
-        return installed or [""]  # 설치본 고정 (없으면 임베드본 말고는 쓸 것이 없다)
-    return installed + [""]
+        # 운영자가 직접 고른 경우 — 세대가 달라도 시도한다. 대신 경고는 남긴다.
+        for path in installed:
+            if not _same_generation(exe, path):
+                logger.warning(
+                    "설정이 설치본 고정이라 세대가 다른 라이브러리를 씁니다: %s",
+                    garment_runtime.describe_file(path),
+                )
+        return installed or [""]
+    return _same_generation_only(exe, installed) + [""]
+
+
+def _same_generation(exe: str, api_dll: str) -> bool:
+    """CLI 와 API 라이브러리가 같은 세대(major)인지."""
+    cli_major = garment_runtime.major_version(exe)
+    api_major = garment_runtime.major_version(api_dll)
+    return bool(cli_major) and cli_major == api_major
+
+
+def _same_generation_only(exe: str, installed: list) -> list:
+    """설치본 중 CLI 와 세대가 같은 것만. 세대가 다른 것은 쓰지 않고 경고한다.
+
+    세대가 다르면 인쇄 설정 구조가 어긋난다. 5.x 는 4.x 대비 항목이 중간에 하나 늘어(winkver)
+    그 뒤 값이 전부 한 칸씩 밀린다. 값 검증에 걸리면 그나마 다행이고, 안 걸리면 **플래튼·잉크
+    같은 값이 엉뚱하게 적용된 채 출력된다.** 옷을 버리는 쪽이 훨씬 비싸므로 섞지 않는다.
+    """
+    usable, mismatched = [], []
+    for path in installed:
+        (usable if _same_generation(exe, path) else mismatched).append(path)
+    if mismatched and not usable:
+        logger.error(
+            "설치된 API 라이브러리 세대가 CLI 와 다릅니다 — 섞으면 설정이 어긋나므로 쓰지 않습니다."
+        )
+        logger.error("  CLI  : %s", garment_runtime.describe_file(exe))
+        for path in mismatched:
+            logger.error("  설치본: %s", garment_runtime.describe_file(path))
+        logger.error(
+            "  이 PC 드라이버 세대에 맞는 CLI 가 필요합니다(벤더 확보). "
+            "임시로 쓰려면 설정의 'API 라이브러리'를 '설치본 고정'으로 바꾸십시오."
+        )
+    return usable
 
 
 def _candidate_exes(printer_name: str = "") -> list:

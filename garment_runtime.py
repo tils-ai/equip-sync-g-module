@@ -133,6 +133,16 @@ def pe_machine_and_corflags(path: str) -> tuple:
     return (machine, None)
 
 
+def major_version(path: str) -> str:
+    """파일 버전의 첫 자리. 못 읽으면 빈 문자열.
+
+    CLI 와 API 는 **같은 세대끼리만** 맞는다. 세대가 다르면 설정 구조가 어긋나 값이 엉뚱한
+    자리로 들어간다(5.x 는 4.x 대비 White Ink Ver. 항목이 끼어들었다). 그 판정에 쓴다.
+    """
+    version = file_version(path)
+    return version.split(".")[0] if version else ""
+
+
 def describe_file(path: str) -> str:
     """로그·진단서용 한 줄 요약: `이름 v버전 (크기 bytes)`."""
     if not path or not os.path.isfile(path):
