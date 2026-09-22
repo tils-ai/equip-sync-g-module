@@ -408,9 +408,6 @@ def _resolve_backend() -> str:
 
 
 GARMENT_BACKEND = _resolve_backend()
-# 알파 평탄화는 기본 안 함. 흰옷은 알파가 곧 잉크 없음이고, 컬러옷은 알파에서 화이트
-# 밑판을 만든다. 어느 쪽도 눕히면 안 된다. 진단 목적일 때만 always 로 켠다.
-API_FLATTEN_ALPHA = _ini.get("garment_cli", "api_flatten_alpha", fallback="never").strip().lower()
 # 직접 호출의 RECT 는 장비 도트 단위다. 0.1mm 설정값을 이 해상도로 환산해 넘긴다.
 # 1200 으로 넘겼더니 현장에서 가로세로 2배(면적 4배)로 나와 좌상단만 찍혔다. 장비 인쇄
 # 해상도는 1200dpi 지만 RECT 좌표계는 600dpi 다. 14인치 = 8400.
@@ -420,7 +417,7 @@ except ValueError:
     API_RECT_DPI = 600
 # 이미지 전달 방식: file(라이브러리가 파일을 직접 읽음, 알파 버려짐) / rgba(우리가 픽셀을
 # 알파째 넘김, 편집기와 같은 경로). 투명 배경이 필요하면 rgba.
-API_IMAGE_PATH = _ini.get("garment_cli", "api_image_path", fallback="file").strip().lower()
+API_IMAGE_PATH = _ini.get("garment_cli", "api_image_path", fallback="rgba").strip().lower()
 # 투명 처리(byTransLayer). 0 으로 넘겼더니 알파가 흰색으로 찍혔다. CLI 의 -W 0(흰색을
 # 투명색으로 해석)에 해당하는 자리로 보고 1 을 기본으로 둔다. 어긋나면 0 으로 되돌린다.
 try:

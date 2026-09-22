@@ -584,11 +584,9 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
 def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
     """라이브러리에 넘기기 전 이미지를 다듬는다. 원본은 건드리지 않는다.
 
-    **알파는 건드리지 않는다.** 한때 컬러 전용일 때 알파를 흰색으로 눕혔는데 그 자체가 틀린
-    처리였다. 흰옷 출력(byInk=0)에서 흰색은 곧 "잉크 없음"이라 알파는 그대로 둬도 안 찍히고,
-    컬러옷(byInk=1·2)은 알파에서 화이트 밑판을 만들므로 눕히면 이미지 전체에 흰 판이 깔린다.
-    치환이 필요한 방향이 있다면 흰색 -> 알파이지 그 반대가 아니다. 반투명 가장자리에 흰 테두리를
-    만드는 부작용도 있다. 그래서 기본은 손대지 않음이고, 설정으로만 켤 수 있게 남긴다.
+    **알파는 어떤 경우에도 건드리지 않는다.** 한때 컬러 전용일 때 흰색으로 눕히는 길을 뒀는데
+    잘못된 발상이었다. 같은 디자인이 유색 옷으로 가면 그 알파 영역에 흰 밑판이 깔려 사각형이
+    통째로 찍힌다. 옷 색에 따라 디자인이 다르게 취급되면 안 된다. 알파는 알파다.
 
     DPI 는 없을 때만 박는다. 크기는 RECT 가 정하므로 지금은 영향이 없지만, 값이 비어 있는
     것보다는 명시된 편이 낫다. 픽셀은 바뀌지 않는다.
@@ -599,13 +597,12 @@ def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
         lines.append("  이미지 보정: PIL 없음, 원본 그대로 사용")
         return png_path
 
-    flatten_mode = str(getattr(config, "API_FLATTEN_ALPHA", "never")).lower()
     dpi = int(getattr(config, "RENDER_DPI", 300) or 300)
     try:
         with Image.open(png_path) as img:
             has_dpi = bool(img.info.get("dpi"))
             has_alpha = img.mode in ("RGBA", "LA") or "transparency" in img.info
-            flatten = has_alpha and flatten_mode == "always"
+            flatten = False  # 알파는 어떤 경우에도 눕히지 않는다
             if has_dpi and not flatten:
                 lines.append(f"  이미지 보정: 불필요 (dpi={img.info.get('dpi')}, 알파={has_alpha})")
                 return png_path

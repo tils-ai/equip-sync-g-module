@@ -873,8 +873,15 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
         )
 
     printer = printer_name or config.PRINTER_NAME
-    if str(getattr(config, "API_IMAGE_PATH", "file")).lower() == "rgba":
-        return _rgba_isolated(image_path, out_path, printer, model, overrides)
+    if str(getattr(config, "API_IMAGE_PATH", "rgba")).lower() == "rgba":
+        rc, lines = _rgba_isolated(image_path, out_path, printer, model, overrides)
+        for line in lines:
+            logger.info("%s", line)
+        if rc == 0:
+            return rc, []
+        # 알파를 살리는 경로가 안 되면 출력 자체를 멈추지는 않는다. 파일 경로로 내려가되
+        # 그 경로는 알파를 버린다는 것을 분명히 남긴다.
+        logger.warning("  RGBA 경로 실패(rc=%s) : 파일 경로로 내려갑니다. 투명 배경이 흰색으로 찍힙니다.", rc)
     variants = _printfile_variants()
     collected = []
     for index, variant in enumerate(variants):

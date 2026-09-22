@@ -541,16 +541,29 @@ class SettingsPanel(ctk.CTkFrame):
         )
         self._backend = self._combo(parent, "출력 경로", backend_opts, current_backend, 3)
 
+        # 이미지 전달 방식 : 파일 경로는 라이브러리가 PNG 를 직접 읽어 알파를 버린다.
+        # 투명 배경을 살리려면 우리가 픽셀을 알파째 넘겨야 한다.
+        image_opts = ["rgba: 알파 보존", "file: 파일 전달"]
+        current_image = next(
+            (o for o in image_opts if o.startswith(config.API_IMAGE_PATH + ":")), image_opts[0]
+        )
+        self._api_image = self._combo(parent, "이미지 전달", image_opts, current_image, 4)
+
+        # 인쇄 위치·크기를 넘길 때 쓰는 장비 좌표계 해상도.
+        self._api_rect_dpi = self._entry(parent, "좌표 해상도(dpi)", str(config.API_RECT_DPI), 5)
+        # 투명 처리 항목(byTransLayer).
+        self._api_trans_layer = self._entry(parent, "투명 처리(0/1)", str(config.API_TRANS_LAYER), 6)
+
         platen_opts = ["0: 16x21", "1: 16x18", "2: 14x16", "3: 10x12", "4: 7x8"]
         current_platen = platen_opts[config.PLATEN_SIZE] if config.PLATEN_SIZE < len(platen_opts) else platen_opts[0]
-        self._platen_size = self._combo(parent, "플래튼", platen_opts, current_platen, 4)
+        self._platen_size = self._combo(parent, "플래튼", platen_opts, current_platen, 7)
 
         ink_opts = ["0: Color", "1: White", "2: Color+White", "3: Black"]
         current_ink = ink_opts[config.INK] if config.INK < len(ink_opts) else ink_opts[0]
-        self._ink = self._combo(parent, "잉크", ink_opts, current_ink, 5)
+        self._ink = self._combo(parent, "잉크", ink_opts, current_ink, 8)
 
-        self._copies = self._entry(parent, "매수", str(config.COPIES), 6)
-        self._position = self._entry(parent, "위치(8자리)", config.POSITION, 7)
+        self._copies = self._entry(parent, "매수", str(config.COPIES), 9)
+        self._position = self._entry(parent, "위치(8자리)", config.POSITION, 10)
 
         # 고급 설정 — 버튼을 누르면 하단에 모든 가먼트 CLI 파라미터를 펼쳐 세부 조정 (GraphicsLab 식)
         self._advanced_visible = False
@@ -564,10 +577,10 @@ class SettingsPanel(ctk.CTkFrame):
             text_color=theme.TEXT,
             command=self._toggle_advanced,
         )
-        self._advanced_btn.grid(row=8, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        self._advanced_btn.grid(row=11, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
         self._advanced_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        self._advanced_frame.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(6, 0))
+        self._advanced_frame.grid(row=12, column=0, columnspan=3, sticky="ew", pady=(6, 0))
         self._build_advanced(self._advanced_frame)
         self._advanced_frame.grid_remove()
 
@@ -705,6 +718,9 @@ class SettingsPanel(ctk.CTkFrame):
             # 경로 고정값에는 ":" 가 들어가므로 라벨 구분자(": ")로만 자른다.
             config.save_value("garment_cli", "api_dll", self._api_dll.get().rsplit(": ", 1)[0])
             config.save_value("garment_cli", "backend", self._backend.get().split(":")[0])
+            config.save_value("garment_cli", "api_image_path", self._api_image.get().split(":")[0])
+            config.save_value("garment_cli", "api_rect_dpi", self._api_rect_dpi.get())
+            config.save_value("garment_cli", "api_trans_layer", self._api_trans_layer.get())
             config.save_value("garment_cli", "platen_size", self._platen_size.get().split(":")[0])
             config.save_value("garment_cli", "ink", self._ink.get().split(":")[0])
             config.save_value("garment_cli", "copies", self._copies.get())
