@@ -9,6 +9,7 @@ vendor/.dll_manifest
 .active_garment_cmd
 # 확정된 API 라이브러리 경로와, 그 라이브러리로 CLI 를 돌리는 실행 폴더 (런타임 생성)
 .active_garment_api
+.active_garment_printfile
 garment-runtime/
 
 # 로컬 빌드 의존성 (poppler-windows 등)

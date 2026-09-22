@@ -415,6 +415,8 @@ GARMENT_API_DLL = _resolve_api_dll_mode()
 GARMENT_RUNTIME_DIR = os.path.join(BASE_DIR, "garment-runtime")
 # probe 로 확정된 API 라이브러리 경로("" = 임베드본)를 기록·재사용하는 상태 파일.
 ACTIVE_API_STATE = os.path.join(BASE_DIR, ".active_garment_api")
+# 직접 호출에서 통한 PrintFile 호출 모양(번호). 확정되면 그 모양만 쓴다.
+ACTIVE_PRINTFILE_STATE = os.path.join(BASE_DIR, ".active_garment_printfile")
 
 # --- folder (spec §11.5 — incoming/processing/done/done/originals/error/logs 통일) ---
 def _path_fallback(paths_key: str, legacy_section: str, legacy_key: str, default_sub: str) -> str:

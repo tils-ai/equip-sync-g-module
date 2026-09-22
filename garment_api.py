@@ -412,8 +412,20 @@ class _Trace(list):
             self._fh = None
 
 
+# PrintFile 호출 모양 후보. 벤더 자료 없이 확정하지 못해, 자식 프로세스에서 하나씩 시험한다.
+# 모양이 틀리면 스택이 깨져 프로세스가 즉사한다(0xC0000409). 그래서 반드시 자식에서만 돈다.
+PRINTFILE_VARIANTS = {
+    0: "이미지, 옵션*, RECT*, 잡이름, 0",
+    1: "이미지, 옵션*, RECT(값), 잡이름, 0",
+    2: "프린터, 옵션*, RECT*, 이미지, 0",
+    3: "OpenPrinter 후 = variant 0",
+    4: "이미지, 옵션*, RECT*, 잡이름, 1",
+}
+
+
 def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro",
-              position: str = "", size: str = "", overrides: dict = None) -> tuple:
+              position: str = "", size: str = "", overrides: dict = None,
+              variant: int = 0, printer_name: str = "") -> tuple:
     """2단계 시험 — 라이브러리를 직접 불러 PNG 에서 인쇄 데이터를 만든다.
 
     `PrintFile(입력경로, 옵션, RECT, 잡이름, BOOL)` 한 번으로 되는지 확인하는 것이 목적이다.
@@ -490,13 +502,38 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
     rect = RECT(left, top, left + width, top + height)
     lines.append(f"  RECT       : ({rect.left}, {rect.top}, {rect.right}, {rect.bottom}) 0.1mm")
 
+    lines.append(f"  호출 모양  : variant {variant} — {PRINTFILE_VARIANTS.get(variant, '?')}")
     try:
         fn = getattr(lib, f"{prefix}PrintFile")
         fn.restype = ctypes.c_int32
-        rc = fn(ctypes.c_wchar_p(os.path.abspath(png_path)), ctypes.byref(_as_buffer(opt)),
-                ctypes.byref(rect), ctypes.c_wchar_p("direct-call test"), ctypes.c_int32(0))
+        image = ctypes.c_wchar_p(os.path.abspath(png_path))
+        job = ctypes.c_wchar_p("direct-call")
+        buf = _as_buffer(opt)
+
+        if variant == 3:
+            # 프린터를 먼저 연 뒤 호출한다. 벤더 편집기도 출력 전에 항상 연다.
+            handle = ctypes.c_void_p()
+            try:
+                opener = getattr(lib, f"{prefix}OpenPrinter")
+                opener.restype = ctypes.c_int32
+                orc = opener(ctypes.byref(handle), ctypes.c_wchar_p(printer_name or ""))
+                lines.append(f"  OpenPrinter: {orc}")
+            except AttributeError:
+                lines.append("  OpenPrinter: 함수 없음")
+
+        if variant == 1:
+            rc = fn(image, ctypes.byref(buf), rect, job, ctypes.c_int32(0))
+        elif variant == 2:
+            rc = fn(ctypes.c_wchar_p(printer_name or ""), ctypes.byref(buf),
+                    ctypes.byref(rect), image, ctypes.c_int32(0))
+        elif variant == 4:
+            rc = fn(image, ctypes.byref(buf), ctypes.byref(rect), job, ctypes.c_int32(1))
+        else:
+            rc = fn(image, ctypes.byref(buf), ctypes.byref(rect), job, ctypes.c_int32(0))
     except Exception as e:
-        return None, lines + [f"  PrintFile 호출 실패: {e}"]
+        lines.append(f"  PrintFile 호출 실패: {e}")
+        lines.close()
+        return None, list(lines)
 
     lines.append(f"  PrintFile  : {rc}")
     if os.path.isfile(out_path):

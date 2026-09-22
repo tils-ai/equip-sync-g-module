@@ -61,7 +61,8 @@ def run_api_selftest() -> int:
 
 
 def run_api_makearxp(png_path: str, out_path: str = "", opt_json: str = "",
-                     position: str = "", size: str = "", model: str = "pro") -> int:
+                     position: str = "", size: str = "", model: str = "pro",
+                     variant: int = 0, printer: str = "") -> int:
     """`--api-makearxp <png> [출력경로]` — 2단계 시험. 인쇄 데이터만 만들어 본다.
 
     장비로 보내는 단계는 타지 않는다. 다만 마지막 인자의 의미가 미확정이라,
@@ -83,7 +84,8 @@ def run_api_makearxp(png_path: str, out_path: str = "", opt_json: str = "",
             print(f"옵션 JSON 해석 실패: {opt_json}")
             return 2
     rc, lines = garment_api.make_arxp(
-        png_path, out_path, model=model, position=position, size=size, overrides=overrides
+        png_path, out_path, model=model, position=position, size=size,
+        overrides=overrides, variant=variant, printer_name=printer,
     )
     log = logging.getLogger(__name__)
     for line in lines:
@@ -127,6 +129,7 @@ def main():
             rest[0], rest[1] if len(rest) > 1 else "",
             opt_json=_flag("--opt"), position=_flag("--position"),
             size=_flag("--size"), model=_flag("--model") or "pro",
+            variant=int(_flag("--variant") or 0), printer=_flag("--printer"),
         ))
     app = WatcherApp()
     app.mainloop()

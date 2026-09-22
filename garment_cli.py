@@ -843,7 +843,8 @@ def _last_direct_trace(tail: int = 12) -> list:
 
 
 def _make_arxp_isolated(image_path: str, out_path: str, model: str,
-                        position: str, size: str, overrides: dict) -> tuple:
+                        position: str, size: str, overrides: dict,
+                        printer_name: str = "") -> tuple:
     """인쇄 데이터 생성을 **자식 프로세스**에서 돌린다.
 
     벤더 라이브러리에서 접근 위반이 나면 파이썬 예외로 잡히지 않고 프로세스가 그대로 죽는다.
@@ -857,17 +858,59 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
             image_path, out_path, model=model, position=position, size=size, overrides=overrides
         )
 
-    cmd = [sys.executable, "--api-makearxp", image_path, out_path,
-           "--model", model, "--position", position, "--size", size,
-           "--opt", json.dumps(overrides or {})]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, timeout=180,
-            stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
-        )
-    except subprocess.TimeoutExpired:
-        return None, ["  직접 호출 자식 프로세스 시간 초과(180초)"]
+    printer = printer_name or config.PRINTER_NAME
+    variants = _printfile_variants()
+    collected = []
+    for index, variant in enumerate(variants):
+        cmd = [sys.executable, "--api-makearxp", image_path, out_path,
+               "--model", model, "--position", position, "--size", size,
+               "--variant", str(variant), "--printer", printer,
+               "--opt", json.dumps(overrides or {})]
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, timeout=180,
+                stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
+            )
+        except subprocess.TimeoutExpired:
+            collected.append(f"  호출 모양 {variant}: 시간 초과(180초)")
+            continue
+        rc, lines = _parse_child(result)
+        if rc is not None:
+            _save_printfile_variant(variant)
+            return rc, collected + lines
+        collected.extend(lines)
+        if index + 1 < len(variants):
+            collected.append(f"  → 호출 모양 {variant} 에서 프로세스가 죽었습니다. 다음 모양으로 시도합니다.")
+    _clear_printfile_variant()
+    return None, collected
 
+
+def _printfile_variants() -> list:
+    """시험할 호출 모양 순서. 성공한 것이 있으면 그것만 쓴다."""
+    try:
+        with open(config.ACTIVE_PRINTFILE_STATE, encoding="utf-8") as f:
+            return [int(f.read().strip())]
+    except (OSError, ValueError):
+        return sorted(garment_api.PRINTFILE_VARIANTS)
+
+
+def _save_printfile_variant(variant: int) -> None:
+    try:
+        with open(config.ACTIVE_PRINTFILE_STATE, "w", encoding="utf-8") as f:
+            f.write(str(variant))
+    except OSError:
+        pass
+
+
+def _clear_printfile_variant() -> None:
+    try:
+        os.remove(config.ACTIVE_PRINTFILE_STATE)
+    except OSError:
+        pass
+
+
+def _parse_child(result) -> tuple:
+    """자식 출력에서 결과 코드와 설명 줄을 뽑는다. 죽었으면 rc 는 None."""
     text = (result.stdout or b"").decode("utf-8", "replace")
     lines = [l for l in text.splitlines() if l.strip() and not l.startswith("RC=")]
     rc = None
@@ -880,11 +923,7 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
     if rc is None:
         code = _normalize_returncode(result.returncode)
         lines.append(f"  자식 프로세스가 결과를 남기지 못하고 종료했습니다 (exit={code})")
-        lines.append("  → 라이브러리 호출에서 프로세스가 죽은 것으로 봅니다. 앱은 계속 동작합니다.")
         lines.extend(_last_direct_trace())
-        err = (result.stderr or b"").decode("utf-8", "replace").strip()
-        if err:
-            lines.append(f"  stderr: {err[:500]}")
     return rc, lines
 
 
@@ -903,6 +942,7 @@ def create_arx4(xml_path: str, image_path: str, arx4_path: str,
         rc, lines = _make_arxp_isolated(
             image_path, arx4_path, model,
             position or config.POSITION, size or "", option_overrides or {},
+            printer_name=printer_name or "",
         )
         for line in lines:
             logger.info("%s", line)
