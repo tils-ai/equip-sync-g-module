@@ -273,7 +273,7 @@ class WatcherApp(ctk.CTk):
         if self._agent is None:
             return
         if not self._agent.print_ready(item_id, ink):
-            logger.info("출력 투입 무시 — 이미 전송 중이거나 없는 항목: %s", item_id)
+            logger.info("출력 투입 무시 : 이미 전송 중이거나 없는 항목 (%s)", item_id)
 
     def _on_delete_clicked(self, item_id: str, label: str, status: str = "ready") -> None:
         """카드 [✕] 클릭 → 확인 모달 → 목록에서 삭제.

@@ -555,8 +555,10 @@ class AgentWorker:
         """
         with self._ready_lock:
             item = self._ready.get(item_id)
-            if item is None or item.status == "done":
+            if item is None:
                 return False
+            # 완료된 건도 다시 보낼 수 있다. 장비가 못 받았거나 옷을 버렸거나, 다시 뽑을 이유는
+            # 현장에 늘 있다. 한 번 보냈다는 이유로 막을 근거가 없다. 서버도 재출력은 막지 않는다.
             if item_id in self._enqueued:
                 return False
             # 재시도 시 실패 표식 초기화 — 대기 상태로 되돌려 전송 시도.
