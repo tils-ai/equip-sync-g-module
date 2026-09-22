@@ -253,6 +253,20 @@ def field_layout(option_type: type) -> list:
     ]
 
 
+# 라이브러리가 우리 구조체보다 뒤까지 읽어도 프로세스가 죽지 않도록 넉넉히 잡는 버퍼 크기.
+# 배치 후보(packed 739B / 기본정렬 756B)를 번갈아 시험하는 구조라, 작은 쪽을 넘겼을 때
+# 라이브러리가 큰 쪽 기준으로 읽으면 할당 범위를 넘어 접근 위반이 난다. 그러면 GUI 까지
+# 통째로 강제 종료된다(현장에서 실제로 그랬다). 항상 이 크기로 잡아 넘긴다.
+OPTION_BUFFER = 4096
+
+
+def _as_buffer(opt: ctypes.Structure):
+    """옵션을 여유 있는 버퍼에 담아 돌려준다. 호출에는 이 버퍼의 주소를 넘긴다."""
+    buf = ctypes.create_string_buffer(OPTION_BUFFER)
+    ctypes.memmove(buf, ctypes.byref(opt), ctypes.sizeof(opt))
+    return buf
+
+
 def _load(api_dll: str):
     """API 라이브러리 로드. 같은 폴더의 의존 모듈도 찾도록 탐색 경로를 더해 준다."""
     folder = os.path.dirname(os.path.abspath(api_dll))
@@ -297,7 +311,7 @@ def probe(api_dll: str, model: str = "pro") -> list:
     opt = None
     for label, layout in option_layouts(model):
         candidate = sample_option(layout)
-        rc, err = call("CheckOption", ctypes.byref(candidate))
+        rc, err = call("CheckOption", ctypes.byref(_as_buffer(candidate)))
         if err:
             lines.append(f"  CheckOption({label}): {err}")
             continue
@@ -309,7 +323,8 @@ def probe(api_dll: str, model: str = "pro") -> list:
 
     ink_color = INT(0)
     ink_white = INT(0)
-    rc, err = call("CalcOption", ctypes.byref(opt), ctypes.byref(ink_color), ctypes.byref(ink_white))
+    rc, err = call("CalcOption", ctypes.byref(_as_buffer(opt)),
+                   ctypes.byref(ink_color), ctypes.byref(ink_white))
     if err:
         lines.append(f"  CalcOption : {err}")
     else:
@@ -399,8 +414,9 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
         candidate = sample_option(option_type, overrides)
         candidate.szFileName = file_name
         candidate.szJobName = job_name
+        buf = _as_buffer(candidate)
         try:
-            code = check(ctypes.byref(candidate))
+            code = check(ctypes.byref(buf))
         except Exception as e:
             return None, lines + [f"  CheckOption 호출 실패({label}): {e}"]
         lines.append(f"  CheckOption({label}, {ctypes.sizeof(option_type)}B): {code}")
@@ -431,8 +447,8 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
     try:
         fn = getattr(lib, f"{prefix}PrintFile")
         fn.restype = ctypes.c_int32
-        rc = fn(ctypes.c_wchar_p(os.path.abspath(png_path)), ctypes.byref(opt),
-                rect, ctypes.c_wchar_p("direct-call test"), ctypes.c_int32(0))
+        rc = fn(ctypes.c_wchar_p(os.path.abspath(png_path)), ctypes.byref(_as_buffer(opt)),
+                ctypes.byref(rect), ctypes.c_wchar_p("direct-call test"), ctypes.c_int32(0))
     except Exception as e:
         return None, lines + [f"  PrintFile 호출 실패: {e}"]
 
@@ -461,7 +477,7 @@ def _autofix(check, option_type: type, overrides: dict, file_name: bytes, job_na
                 continue
             setattr(candidate, name, value)
             try:
-                if check(ctypes.byref(candidate)) == 0:
+                if check(ctypes.byref(_as_buffer(candidate))) == 0:
                     return candidate, f"{name} {original} → {value}"
             except Exception:
                 return None, ""
@@ -529,7 +545,7 @@ def probe_option(api_dll: str = "", model: str = "pro") -> list:
             if hasattr(opt, key):
                 setattr(opt, key, val)
         try:
-            return check(ctypes.byref(opt))
+            return check(ctypes.byref(_as_buffer(opt)))
         except Exception:
             return None
 
