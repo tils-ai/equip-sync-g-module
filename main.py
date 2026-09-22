@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 import config
 import fonts
@@ -45,11 +46,27 @@ def setup_logging() -> None:
     root.addHandler(sh)
 
 
+def run_api_selftest() -> int:
+    """`--api-selftest` — API 직접 호출 전환의 1단계(구조체 정렬) 점검만 하고 끝낸다.
+
+    GUI 를 띄우지 않는다. 현장 PC 에서 cmd 한 줄로 실행해 보고서만 받아오기 위한 통로다.
+    인쇄는 하지 않으므로 장비·옷에 영향이 없다.
+    """
+    import garment_api
+
+    path = garment_api.self_test_report()
+    print(f"점검 보고서: {path}")  # 콘솔에서 실행했을 때만 보인다
+    logging.getLogger(__name__).info("API 점검 보고서: %s", path)
+    return 0
+
+
 from gui import WatcherApp
 
 
 def main():
     setup_logging()
+    if "--api-selftest" in sys.argv:
+        raise SystemExit(run_api_selftest())
     app = WatcherApp()
     app.mainloop()
 
