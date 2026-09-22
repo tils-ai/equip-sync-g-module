@@ -19,6 +19,7 @@ import ctypes
 import datetime
 import os
 import platform
+import time
 
 import config
 import garment_runtime
@@ -564,6 +565,33 @@ def rgba_probe(png_path: str, printer_name: str, api_dll: str = "", model: str =
     return list(lines)
 
 
+def printer_jobs(printer_name: str) -> str:
+    """Windows 프린터 큐에 걸린 작업 목록. 장비가 실제로 뭔가 받았는지 보는 가장 직접적인 신호."""
+    if not printer_name:
+        return "(프린터 미지정)"
+    try:
+        import win32print
+    except ImportError:
+        return "(win32print 없음)"
+    try:
+        handle = win32print.OpenPrinter(printer_name)
+        try:
+            jobs = win32print.EnumJobs(handle, 0, 99, 1)
+        finally:
+            win32print.ClosePrinter(handle)
+    except Exception as e:
+        return f"(조회 실패: {e})"
+    if not jobs:
+        return "작업 없음"
+    out = []
+    for job in jobs[:5]:
+        out.append(
+            f"#{job.get('JobId')} {job.get('pDocument') or '(이름없음)'} "
+            f"상태={job.get('Status')} {job.get('Size', 0):,}B"
+        )
+    return f"{len(jobs)}건 : " + " | ".join(out)
+
+
 def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "",
                model: str = "pro", overrides: dict = None, white_convert: int = 0,
                position: str = "", size: str = "") -> tuple:
@@ -585,8 +613,20 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
 
     pos_x10, pos_y10 = _parse_pos(position or getattr(config, "POSITION", "00000000"))
     size_w10, size_h10 = _parse_pos(size or getattr(config, "SIZE", "") or "00000000")
+    started = time.time()
     lines.append(f"  라이브러리 : {garment_runtime.describe_file(api_dll)}")
     lines.append(f"  경로       : RGBA (알파 보존)")
+    lines.append(f"  프린터     : {printer_name}")
+    lines.append(f"  큐(호출 전): {printer_jobs(printer_name)}")
+    lines.append(
+        "  옵션       : "
+        + ", ".join(
+            f"{name}={getattr(opt, name)}"
+            for name in ("uiCopies", "byPrintMethod", "byPlatenSize", "byInk", "byWInkVer",
+                         "byResolution", "byQuality", "byInkVolume", "byTransLayer", "bTransColor")
+            if hasattr(opt, name)
+        )
+    )
     try:
         from PIL import Image
     except ImportError:
@@ -621,7 +661,7 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
         lines.append(f"  open 호출 실패: {e}")
         lines.close()
         return None, list(lines)
-    lines.append(f"  open       : {rc}")
+    lines.append(f"  open       : {rc} (핸들={handle.value}) {time.time()-started:.1f}초")
     if rc != 0:
         lines.append("  → 프린터를 열지 못했습니다.")
         lines.close()
@@ -704,11 +744,21 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
             rc = process(handle, SIZE(canvas_w, rows),
                          ctypes.cast(buf, ctypes.POINTER(ctypes.c_ubyte)),
                          ctypes.c_int32(band_top), ctypes.c_int32(white_convert))
+            if band_top == 0 or band_top + BAND_HEIGHT >= canvas_h:
+                ink = sum(1 for v in chunk[3::4] if v)
+                lines.append(
+                    f"  밴드 y={band_top:<5} {rows}행 {len(chunk):,}B "
+                    f"잉크픽셀 {ink:,} rc={rc}"
+                )
             if rc != 0:
                 lines.append(f"  픽셀 전달(y={band_top}): {rc}")
                 break
         else:
-            lines.append("  픽셀 전달  : 전 밴드 완료")
+            total_ink = sum(1 for v in raw[3::4] if v)
+            lines.append(
+                f"  픽셀 전달  : 전 밴드 완료, 잉크 나갈 픽셀 총 {total_ink:,} "
+                f"({time.time()-started:.1f}초)"
+            )
     except Exception as e:
         lines.append(f"  이미지 전달 실패: {e}")
         rc = None
@@ -720,7 +770,8 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
         if crc != 0:
             lines.append(f"  close(핸들): {crc}, 인자 없이 재시도")
             crc = closer()
-        lines.append(f"  close      : {crc}")
+        lines.append(f"  close      : {crc} ({time.time()-started:.1f}초)")
+        lines.append(f"  큐(호출 후): {printer_jobs(printer_name)}")
         if rc == 0 and crc != 0:
             rc = crc
     except Exception as e:
