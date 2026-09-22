@@ -525,9 +525,9 @@ class SettingsPanel(ctk.CTkFrame):
         current_cli = next((opt for opt in cli_opts if opt.startswith(config.GTX_CLI + ":")), cli_opts[0])
         self._gtx_cli = self._combo(parent, "장비 계열", cli_opts, current_cli, 1)
 
-        # 드라이버를 올린 PC 는 설치된 라이브러리가 세대가 맞는다. 기본 auto 는 임베드본으로
-        # 먼저 시도하고, 드라이버 매칭에 실패할 때만 설치본으로 넘어간다.
-        api_opts = ["auto: 자동", "embedded: 임베드본", "installed: 설치본"]
+        # 설치본은 그 PC 드라이버와 한 패키지로 깔린 것이라 세대가 맞는다. 기본 auto 는
+        # 설치본을 먼저 쓰고, 없거나 안 맞을 때만 임베드본으로 내려간다.
+        api_opts = ["auto: 설치본 우선", "embedded: 임베드본", "installed: 설치본 고정"]
         current_api = next((o for o in api_opts if o.startswith(config.GARMENT_API_DLL + ":")), None)
         if current_api is None:  # 경로로 고정해 둔 경우 — 그 값을 지우지 않는다
             current_api = f"{config.GARMENT_API_DLL}: 지정 경로"

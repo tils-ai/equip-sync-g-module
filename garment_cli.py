@@ -232,8 +232,12 @@ def _clear_active_api() -> None:
 def _candidate_apis(exe: str) -> list:
     """이 exe 로 시도할 API 라이브러리 목록. "" = 임베드본(복사 없이 그대로 실행).
 
-    기본 auto 는 **임베드본 먼저**다. 지금 잘 돌고 있는 현장의 동작을 바꾸지 않기 위해서다.
-    드라이버 매칭 실패 계열이 나올 때만 설치본으로 넘어가고, 성공한 쪽을 확정·재사용한다.
+    기본 auto 는 **설치본 먼저**다. 설치본은 그 PC 의 드라이버와 한 패키지로 깔린 것이라
+    세대가 맞고, 임베드본은 우리가 확보한 시점에 굳은 것이라 안 맞을 수 있다. 처음에는
+    임베드본을 먼저 뒀는데, 현장에서 매 작업마다 -1401 로 한 번 실패한 뒤에야 설치본으로
+    넘어가는 낭비가 드러났다(진단서 생성까지 따라붙어 7초). 순서를 뒤집는다.
+
+    설치본이 없거나 그것도 드라이버를 못 찾으면 임베드본으로 내려간다.
     """
     mode = getattr(config, "GARMENT_API_DLL", "auto") or "auto"
     if mode not in ("auto", "embedded", "installed"):
@@ -246,7 +250,9 @@ def _candidate_apis(exe: str) -> list:
         return [cached]
 
     installed = garment_runtime.installed_api_dlls(garment_runtime.api_dll_for(exe))
-    return installed + [""] if mode == "installed" else [""] + installed
+    if mode == "installed":
+        return installed or [""]  # 설치본 고정 (없으면 임베드본 말고는 쓸 것이 없다)
+    return installed + [""]
 
 
 def _candidate_exes(printer_name: str = "") -> list:

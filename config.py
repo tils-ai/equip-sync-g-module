@@ -373,9 +373,9 @@ ACTIVE_CMD_STATE = os.path.join(BASE_DIR, ".active_garment_cmd")
 def _resolve_api_dll_mode() -> str:
     """API 라이브러리 선택 방식.
 
-    auto      = 임베드본 먼저, 드라이버 매칭 실패면 설치본으로 재시도 (기본)
+    auto      = 설치본 먼저, 없거나 안 맞으면 임베드본 (기본)
     embedded  = 임베드본만
-    installed = 설치본 먼저
+    installed = 설치본 고정
     <경로>    = 그 파일로 고정
     """
     value = _ini.get("garment_cli", "api_dll", fallback="auto").strip()
