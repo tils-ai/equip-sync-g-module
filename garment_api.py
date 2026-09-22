@@ -369,8 +369,17 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
         return None, lines + [f"  CheckOption 호출 실패: {e}"]
     lines.append(f"  CheckOption: {rc}")
     if rc != 0:
-        lines.append("  → 배치 불일치. 생성을 중단합니다(밀린 값으로 만들면 안 됨).")
-        return rc, lines
+        # 어느 항목이 걸렸는지 라이브러리에 직접 물어 통과값을 찾는다. 세대가 바뀌면 항목의
+        # 유효 범위·의미도 같이 바뀌는데(5.x 는 항목이 넷 늘었다), 그때마다 현장을 한 번 더
+        # 왕복시키는 대신 여기서 맞춘다. 무엇을 바꿨는지는 반드시 남긴다.
+        check = getattr(lib, f"{prefix}CheckOption")
+        fixed, note = _autofix(check, option_type, overrides, opt.szFileName, opt.szJobName)
+        if fixed is None:
+            lines.append("  → 통과하는 값을 찾지 못했습니다. 생성을 중단합니다(밀린 값으로 만들면 안 됨).")
+            return rc, lines
+        opt = fixed
+        lines.append(f"  자동 보정  : {note} (원래 값으로는 rc={rc})")
+        lines.append("  → 이 보정은 임시 조치다. 같은 보정이 반복되면 설정 기본값을 고쳐야 한다.")
 
     left, top = _parse_pos(position or getattr(config, "POSITION", "00000000"))
     width, height = _parse_pos(size or getattr(config, "SIZE", "") or "00000000")
@@ -391,6 +400,30 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
     else:
         lines.append("  생성 결과  : 파일 없음")
     return rc, lines
+
+
+def _autofix(check, option_type: type, overrides: dict, file_name: bytes, job_name: bytes):
+    """CheckOption 을 통과하는 값을 한 항목씩 바꿔 가며 찾는다.
+
+    반환: (옵션, 무엇을 바꿨는지) — 못 찾으면 (None, "").
+    """
+    for name, values in _PROBE_CANDIDATES:
+        if not hasattr(option_type, name):
+            continue
+        for value in values:
+            candidate = sample_option(option_type, overrides)
+            candidate.szFileName = file_name
+            candidate.szJobName = job_name
+            original = getattr(candidate, name)
+            if original == value:
+                continue
+            setattr(candidate, name, value)
+            try:
+                if check(ctypes.byref(candidate)) == 0:
+                    return candidate, f"{name} {original} → {value}"
+            except Exception:
+                return None, ""
+    return None, ""
 
 
 def _pick_api(exe: str) -> str:
