@@ -92,6 +92,14 @@ def main():
     )
     if "--api-selftest" in sys.argv:
         raise SystemExit(run_api_selftest())
+    if "--api-probe" in sys.argv:
+        import garment_api
+
+        log = logging.getLogger(__name__)
+        for line in garment_api.probe_option():
+            print(line)
+            log.info("%s", line)
+        raise SystemExit(0)
     if "--api-makearxp" in sys.argv:
         i = sys.argv.index("--api-makearxp")
         rest = sys.argv[i + 1:]

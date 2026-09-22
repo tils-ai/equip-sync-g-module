@@ -409,6 +409,107 @@ def _parse_pos(value: str) -> tuple:
         return 0, 0
 
 
+# 후보값 — CheckOption 이 거부할 때 한 항목씩 바꿔 가며 통과 조합을 찾는다.
+_PROBE_CANDIDATES = (
+    ("byDoublePrint", (0, 1, 2, 3)),
+    ("byQuality", (0, 1, 2, 3, 4)),
+    ("byWInkVer", (0, 1)),
+    ("byPrintMethod", (0, 1, 2)),
+    ("byInkVolume", (1, 5, 10)),
+    ("byResolution", (0, 1, 2)),
+    ("byHighlight", (1, 5, 9)),
+    ("byMask", (1, 3, 5)),
+    ("byMinWhite", (1, 3, 6)),
+    ("byInk", (0, 1, 2)),
+    ("byPlatenSize", (0, 2, 3)),
+    ("uiCopies", (1,)),
+)
+
+
+def probe_option(api_dll: str = "", model: str = "pro") -> list:
+    """CheckOption 이 거부할 때, 어느 항목 때문인지 한 항목씩 바꿔 가며 찾는다.
+
+    코드 번호만 보고 추측하면 왕복이 길어진다. 라이브러리에 직접 물어보는 편이 빠르다.
+    호출은 전부 메모리 안에서 끝나므로 장비·옷에 영향이 없다.
+    """
+    lines = []
+    exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
+    api_dll = api_dll or _pick_api(exe)
+    if not api_dll:
+        return ["API 라이브러리를 찾지 못했습니다."]
+    prefix = garment_runtime.driver_file_prefix(api_dll)
+    option_type = option_type_for(api_dll, model)
+    lines.append(f"  라이브러리 : {garment_runtime.describe_file(api_dll)}")
+
+    try:
+        lib = _load(api_dll)
+        check = getattr(lib, f"{prefix}CheckOption")
+        check.restype = ctypes.c_int32
+    except (OSError, AttributeError) as e:
+        return lines + [f"  준비 실패   : {e}"]
+
+    def rc_for(changes: dict) -> int:
+        opt = sample_option(option_type)
+        for key, val in changes.items():
+            if hasattr(opt, key):
+                setattr(opt, key, val)
+        try:
+            return check(ctypes.byref(opt))
+        except Exception:
+            return None
+
+    base = rc_for({})
+    lines.append(f"  기준 설정  : CheckOption={base}")
+    if base == 0:
+        lines.append("  → 현재 설정 그대로 통과합니다.")
+        return lines
+
+    lines.append("  -- 한 항목씩 바꿔 보기 (통과=0) --")
+    passing = []
+    for name, values in _PROBE_CANDIDATES:
+        if not hasattr(option_type, name):
+            continue
+        results = []
+        for value in values:
+            rc = rc_for({name: value})
+            results.append(f"{value}→{rc}")
+            if rc == 0:
+                passing.append((name, value))
+        lines.append(f"    {name:<16} {', '.join(results)}")
+
+    if passing:
+        lines.append("  -- 통과시키는 값 --")
+        for name, value in passing:
+            lines.append(f"    {name} = {value}")
+        return lines
+
+    lines.append("  -- 한 항목으로는 안 됨. 5.x 신설 항목 조합 탐색 --")
+    found = None
+    for method in (0, 1, 2):
+        for wink in (0, 1):
+            for quality in (0, 1, 2, 3, 4):
+                for double in (0, 1):
+                    rc = rc_for({"byPrintMethod": method, "byWInkVer": wink,
+                                 "byQuality": quality, "byDoublePrint": double})
+                    if rc == 0:
+                        found = (method, wink, quality, double)
+                        break
+                if found:
+                    break
+            if found:
+                break
+        if found:
+            break
+    if found:
+        lines.append(
+            f"    통과: byPrintMethod={found[0]}, byWInkVer={found[1]}, "
+            f"byQuality={found[2]}, byDoublePrint={found[3]}"
+        )
+    else:
+        lines.append("    통과 조합 없음 — 구조체 배치를 다시 봐야 합니다.")
+    return lines
+
+
 def self_test_report() -> str:
     """임베드본·설치본 모두를 점검한 보고서를 파일로 남기고 경로를 돌려준다."""
     now = datetime.datetime.now()
