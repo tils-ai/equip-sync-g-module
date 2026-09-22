@@ -368,6 +368,50 @@ def send(data_path: str, printer_name: str, api_dll: str = "", model: str = "pro
     return rc, lines
 
 
+class _Trace(list):
+    """줄을 모으면서 동시에 파일로 흘려 쓴다.
+
+    벤더 라이브러리가 프로세스를 죽이면 버퍼에 남은 표준 출력은 사라진다. 어디까지 갔는지
+    남기려면 한 줄마다 파일에 밀어 넣어야 한다. 이 파일이 직접 호출 경로의 진단서다.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.path = ""
+        try:
+            log_dir = os.path.dirname(config.LOG_FILE) or os.path.join(config.BASE_DIR, "logs")
+            diag = os.path.join(log_dir, "diagnostics")
+            os.makedirs(diag, exist_ok=True)
+            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            self.path = os.path.join(diag, f"api-direct-{stamp}.txt")
+            self._fh = open(self.path, "w", encoding="utf-8")
+            self._write(f"가먼트 API 직접 호출 기록 — {stamp}")
+            self._write(f"실행 빌드: {getattr(config, 'APP_VERSION', '?')}")
+        except OSError:
+            self._fh = None
+
+    def _write(self, line: str) -> None:
+        if self._fh:
+            try:
+                self._fh.write(line + "\n")
+                self._fh.flush()
+                os.fsync(self._fh.fileno())
+            except OSError:
+                pass
+
+    def append(self, line):
+        super().append(line)
+        self._write(str(line))
+
+    def close(self):
+        if self._fh:
+            try:
+                self._fh.close()
+            except OSError:
+                pass
+            self._fh = None
+
+
 def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro",
               position: str = "", size: str = "", overrides: dict = None) -> tuple:
     """2단계 시험 — 라이브러리를 직접 불러 PNG 에서 인쇄 데이터를 만든다.
@@ -381,11 +425,13 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
 
     반환: (rc, 설명 줄 목록)
     """
-    lines = []
+    lines = _Trace()
     exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
     api_dll = api_dll or _pick_api(exe)
     if not api_dll:
-        return None, ["API 라이브러리를 찾지 못했습니다."]
+        lines.append("API 라이브러리를 찾지 못했습니다.")
+        lines.close()
+        return None, list(lines)
 
     prefix = garment_runtime.driver_file_prefix(api_dll)
     file_name = os.path.abspath(out_path).encode("utf-8", "ignore")[:MAX_PATH - 1]
@@ -457,7 +503,8 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
         lines.append(f"  생성 결과  : {os.path.getsize(out_path):,} bytes")
     else:
         lines.append("  생성 결과  : 파일 없음")
-    return rc, lines
+    lines.close()
+    return rc, list(lines)
 
 
 def _autofix(check, option_type: type, overrides: dict, file_name: bytes, job_name: bytes):

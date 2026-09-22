@@ -7,9 +7,11 @@ API 라이브러리도 같은 방식으로 고른다 — 임베드본이 드라�
 
 import csv
 import datetime
+import json
 import logging
 import os
 import subprocess
+import sys
 import tempfile
 
 import config
@@ -819,6 +821,73 @@ def _api_backend_active(printer_name: str = "") -> bool:
     return bool(installed) and not any(_same_generation(exe, p) for p in installed)
 
 
+def _last_direct_trace(tail: int = 12) -> list:
+    """직접 호출 기록 파일의 마지막 줄들 — 자식이 죽어 표준 출력을 잃었을 때 쓴다."""
+    log_dir = os.path.dirname(config.LOG_FILE) or os.path.join(config.BASE_DIR, "logs")
+    diag = os.path.join(log_dir, "diagnostics")
+    try:
+        files = [f for f in os.listdir(diag) if f.startswith("api-direct-")]
+        newest = max(files, key=lambda f: os.path.getmtime(os.path.join(diag, f)))
+    except (OSError, ValueError):
+        return ["  (직접 호출 기록 파일 없음)"]
+    path = os.path.join(diag, newest)
+    try:
+        with open(path, encoding="utf-8") as f:
+            body = f.read().splitlines()
+    except OSError:
+        return [f"  (기록 파일 읽기 실패: {path})"]
+    out = [f"  마지막 기록: {path}"]
+    out.extend(f"  | {line}" for line in body[-tail:])
+    out.append("  | ↑ 여기까지 진행하고 죽었습니다")
+    return out
+
+
+def _make_arxp_isolated(image_path: str, out_path: str, model: str,
+                        position: str, size: str, overrides: dict) -> tuple:
+    """인쇄 데이터 생성을 **자식 프로세스**에서 돌린다.
+
+    벤더 라이브러리에서 접근 위반이 나면 파이썬 예외로 잡히지 않고 프로세스가 그대로 죽는다.
+    한 몸으로 돌리면 GUI 까지 같이 내려간다(현장에서 출력 버튼을 누르는 순간 앱이 꺼졌다).
+    자식으로 떼어 두면 최악이라도 그 작업만 실패하고 앱은 살아 있는다.
+
+    배포본이 아닐 때(개발 실행)는 자식으로 뜰 대상이 없으므로 같은 프로세스에서 돈다.
+    """
+    if not getattr(sys, "frozen", False):
+        return garment_api.make_arxp(
+            image_path, out_path, model=model, position=position, size=size, overrides=overrides
+        )
+
+    cmd = [sys.executable, "--api-makearxp", image_path, out_path,
+           "--model", model, "--position", position, "--size", size,
+           "--opt", json.dumps(overrides or {})]
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, timeout=180,
+            stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
+        )
+    except subprocess.TimeoutExpired:
+        return None, ["  직접 호출 자식 프로세스 시간 초과(180초)"]
+
+    text = (result.stdout or b"").decode("utf-8", "replace")
+    lines = [l for l in text.splitlines() if l.strip() and not l.startswith("RC=")]
+    rc = None
+    for line in text.splitlines():
+        if line.startswith("RC="):
+            try:
+                rc = int(line[3:].strip())
+            except ValueError:
+                rc = None
+    if rc is None:
+        code = _normalize_returncode(result.returncode)
+        lines.append(f"  자식 프로세스가 결과를 남기지 못하고 종료했습니다 (exit={code})")
+        lines.append("  → 라이브러리 호출에서 프로세스가 죽은 것으로 봅니다. 앱은 계속 동작합니다.")
+        lines.extend(_last_direct_trace())
+        err = (result.stderr or b"").decode("utf-8", "replace").strip()
+        if err:
+            lines.append(f"  stderr: {err[:500]}")
+    return rc, lines
+
+
 def create_arx4(xml_path: str, image_path: str, arx4_path: str,
                 position: str = None, size: str = None,
                 magnification: str = None, white: int = None,
@@ -831,10 +900,9 @@ def create_arx4(xml_path: str, image_path: str, arx4_path: str,
         model = _model_for_exe(_exe_for_model(_preferred_model_for_printer(printer_name or "")) or "") or "pro"
         if magnification and not size:
             logger.warning("직접 호출 경로는 상대 배율(-R)을 아직 지원하지 않습니다 — 절대 크기로 넘겨야 합니다.")
-        rc, lines = garment_api.make_arxp(
-            image_path, arx4_path, model=model,
-            position=position or config.POSITION, size=size or "",
-            overrides=option_overrides or {},
+        rc, lines = _make_arxp_isolated(
+            image_path, arx4_path, model,
+            position or config.POSITION, size or "", option_overrides or {},
         )
         for line in lines:
             logger.info("%s", line)

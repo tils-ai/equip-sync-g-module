@@ -60,7 +60,8 @@ def run_api_selftest() -> int:
     return 0
 
 
-def run_api_makearxp(png_path: str, out_path: str = "") -> int:
+def run_api_makearxp(png_path: str, out_path: str = "", opt_json: str = "",
+                     position: str = "", size: str = "", model: str = "pro") -> int:
     """`--api-makearxp <png> [출력경로]` — 2단계 시험. 인쇄 데이터만 만들어 본다.
 
     장비로 보내는 단계는 타지 않는다. 다만 마지막 인자의 의미가 미확정이라,
@@ -72,12 +73,24 @@ def run_api_makearxp(png_path: str, out_path: str = "") -> int:
         print(f"입력 PNG 를 찾을 수 없습니다: {png_path}")
         return 2
     out_path = out_path or os.path.splitext(png_path)[0] + "-direct.arxp"
-    rc, lines = garment_api.make_arxp(png_path, out_path)
+    overrides = {}
+    if opt_json:
+        import json
+
+        try:
+            overrides = json.loads(opt_json)
+        except ValueError:
+            print(f"옵션 JSON 해석 실패: {opt_json}")
+            return 2
+    rc, lines = garment_api.make_arxp(
+        png_path, out_path, model=model, position=position, size=size, overrides=overrides
+    )
     log = logging.getLogger(__name__)
     for line in lines:
         print(line)
         log.info("%s", line)
-    print(f"반환 코드: {rc}")
+    # 부모가 결과를 읽는 약속된 줄. 자식이 죽으면 이 줄이 없다 → 부모가 크래시로 판정한다.
+    print(f"RC={rc}")
     log.info("직접 호출 생성 반환 코드: %s", rc)
     return 0 if rc == 0 else 1
 
@@ -102,11 +115,19 @@ def main():
         raise SystemExit(0)
     if "--api-makearxp" in sys.argv:
         i = sys.argv.index("--api-makearxp")
-        rest = sys.argv[i + 1:]
+        rest = [a for a in sys.argv[i + 1:] if not a.startswith("--")]
         if not rest:
-            print("사용법: --api-makearxp <입력.png> [출력.arxp]")
+            print("사용법: --api-makearxp <입력.png> [출력.arxp] [--opt <json>] [--position P] [--size S]")
             raise SystemExit(2)
-        raise SystemExit(run_api_makearxp(rest[0], rest[1] if len(rest) > 1 else ""))
+
+        def _flag(name: str) -> str:
+            return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else ""
+
+        raise SystemExit(run_api_makearxp(
+            rest[0], rest[1] if len(rest) > 1 else "",
+            opt_json=_flag("--opt"), position=_flag("--position"),
+            size=_flag("--size"), model=_flag("--model") or "pro",
+        ))
     app = WatcherApp()
     app.mainloop()
 
