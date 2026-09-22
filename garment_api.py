@@ -240,6 +240,87 @@ def probe(api_dll: str, model: str = "pro") -> list:
     return lines
 
 
+def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro",
+              position: str = "", size: str = "") -> tuple:
+    """2단계 시험 — 라이브러리를 직접 불러 PNG 에서 인쇄 데이터를 만든다.
+
+    `PrintFile(입력경로, 옵션, RECT, 잡이름, BOOL)` 한 번으로 되는지 확인하는 것이 목적이다.
+    출력 파일 경로는 옵션의 `szFileName` 에 실어 보낸다 — CLI 의 `-A` 에 해당한다.
+
+    ⚠ **아직 미검증 경로다.** 마지막 BOOL 인자의 의미를 벤더 자료 없이 확정하지 못했다.
+    장비로 바로 보내는 뜻일 가능성을 배제할 수 없으므로, **첫 실행은 장비 전원을 끄거나 USB 를
+    뽑은 상태에서** 한다. 그 상태면 최악이라도 오류 코드만 돌아온다.
+
+    반환: (rc, 설명 줄 목록)
+    """
+    lines = []
+    exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
+    api_dll = api_dll or _pick_api(exe)
+    if not api_dll:
+        return None, ["API 라이브러리를 찾지 못했습니다."]
+
+    prefix = garment_runtime.driver_file_prefix(api_dll)
+    option_type = option_type_for(api_dll, model)
+    opt = sample_option(option_type)
+    opt.szFileName = os.path.abspath(out_path).encode("utf-8", "ignore")[:MAX_PATH - 1]
+    opt.szJobName = b"direct-call test"
+
+    lines.append(f"  라이브러리 : {garment_runtime.describe_file(api_dll)}")
+    lines.append(f"  입력 PNG   : {png_path}")
+    lines.append(f"  출력 대상  : {out_path}")
+
+    try:
+        lib = _load(api_dll)
+    except OSError as e:
+        return None, lines + [f"  로드 실패   : {e}"]
+
+    # 배치가 틀린 채 진행하면 값이 밀린 데이터가 만들어진다. 반드시 먼저 막는다.
+    try:
+        rc = getattr(lib, f"{prefix}CheckOption")(ctypes.byref(opt))
+    except Exception as e:
+        return None, lines + [f"  CheckOption 호출 실패: {e}"]
+    lines.append(f"  CheckOption: {rc}")
+    if rc != 0:
+        lines.append("  → 배치 불일치. 생성을 중단합니다(밀린 값으로 만들면 안 됨).")
+        return rc, lines
+
+    left, top = _parse_pos(position or getattr(config, "POSITION", "00000000"))
+    width, height = _parse_pos(size or getattr(config, "SIZE", "") or "00000000")
+    rect = RECT(left, top, left + width, top + height)
+    lines.append(f"  RECT       : ({rect.left}, {rect.top}, {rect.right}, {rect.bottom}) 0.1mm")
+
+    try:
+        fn = getattr(lib, f"{prefix}PrintFile")
+        fn.restype = ctypes.c_int32
+        rc = fn(ctypes.c_wchar_p(os.path.abspath(png_path)), ctypes.byref(opt),
+                rect, ctypes.c_wchar_p("direct-call test"), ctypes.c_int32(0))
+    except Exception as e:
+        return None, lines + [f"  PrintFile 호출 실패: {e}"]
+
+    lines.append(f"  PrintFile  : {rc}")
+    if os.path.isfile(out_path):
+        lines.append(f"  생성 결과  : {os.path.getsize(out_path):,} bytes")
+    else:
+        lines.append("  생성 결과  : 파일 없음")
+    return rc, lines
+
+
+def _pick_api(exe: str) -> str:
+    """이 시험에 쓸 라이브러리 — 설치본이 있으면 그것, 없으면 임베드본."""
+    embedded = garment_runtime.api_dll_for(exe)
+    installed = garment_runtime.installed_api_dlls(embedded)
+    return installed[0] if installed else embedded
+
+
+def _parse_pos(value: str) -> tuple:
+    """8자리 문자열(앞4=가로, 뒤4=세로, 0.1mm)을 정수 쌍으로."""
+    text = (value or "").strip() or "00000000"
+    try:
+        return int(text[:4]), int(text[4:8])
+    except ValueError:
+        return 0, 0
+
+
 def self_test_report() -> str:
     """임베드본·설치본 모두를 점검한 보고서를 파일로 남기고 경로를 돌려준다."""
     now = datetime.datetime.now()

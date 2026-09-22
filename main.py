@@ -60,6 +60,28 @@ def run_api_selftest() -> int:
     return 0
 
 
+def run_api_makearxp(png_path: str, out_path: str = "") -> int:
+    """`--api-makearxp <png> [출력경로]` — 2단계 시험. 인쇄 데이터만 만들어 본다.
+
+    장비로 보내는 단계는 타지 않는다. 다만 마지막 인자의 의미가 미확정이라,
+    **첫 실행은 장비 전원을 끄거나 USB 를 뽑고** 하는 것을 전제한다.
+    """
+    import garment_api
+
+    if not os.path.isfile(png_path):
+        print(f"입력 PNG 를 찾을 수 없습니다: {png_path}")
+        return 2
+    out_path = out_path or os.path.splitext(png_path)[0] + "-direct.arxp"
+    rc, lines = garment_api.make_arxp(png_path, out_path)
+    log = logging.getLogger(__name__)
+    for line in lines:
+        print(line)
+        log.info("%s", line)
+    print(f"반환 코드: {rc}")
+    log.info("직접 호출 생성 반환 코드: %s", rc)
+    return 0 if rc == 0 else 1
+
+
 from gui import WatcherApp
 
 
@@ -67,6 +89,13 @@ def main():
     setup_logging()
     if "--api-selftest" in sys.argv:
         raise SystemExit(run_api_selftest())
+    if "--api-makearxp" in sys.argv:
+        i = sys.argv.index("--api-makearxp")
+        rest = sys.argv[i + 1:]
+        if not rest:
+            print("사용법: --api-makearxp <입력.png> [출력.arxp]")
+            raise SystemExit(2)
+        raise SystemExit(run_api_makearxp(rest[0], rest[1] if len(rest) > 1 else ""))
     app = WatcherApp()
     app.mainloop()
 
