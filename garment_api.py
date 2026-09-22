@@ -626,7 +626,8 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
     lines.append(f"  라이브러리 : {garment_runtime.describe_file(api_dll)}")
     lines.append(f"  경로       : RGBA (알파 보존)")
     lines.append(f"  프린터     : {printer_name}")
-    lines.append(f"  큐(호출 전): {printer_jobs(printer_name)}")
+    jobs_before = printer_jobs(printer_name)
+    lines.append(f"  큐(호출 전): {jobs_before}")
     lines.append(
         "  옵션       : "
         + ", ".join(
@@ -690,6 +691,7 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
             return None, list(lines)
     process.restype = ctypes.c_int32
 
+    jobs_after = jobs_before
     rc = 0
     try:
         # 이 경로에는 RECT 가 없다. 크기와 위치는 **픽셀 자체**가 정한다. 그래서 장비 좌표계
@@ -780,15 +782,23 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
             lines.append(f"  close(핸들): {crc}, 인자 없이 재시도")
             crc = closer()
         lines.append(f"  close      : {crc} ({time.time()-started:.1f}초)")
-        lines.append(f"  큐(호출 후): {printer_jobs(printer_name)}")
+        jobs_after = printer_jobs(printer_name)
+        lines.append(f"  큐(호출 후): {jobs_after}")
         if rc == 0 and crc != 0:
             rc = crc
     except Exception as e:
         lines.append(f"  close 실패: {e}")
 
     size = os.path.getsize(out_path) if os.path.isfile(out_path) else 0
+    delivered = jobs_after != jobs_before and "조회 실패" not in jobs_after
+    if rc == 0 and not delivered:
+        # 반환값 0 은 호출이 통과했다는 뜻일 뿐이다. 큐에 아무것도 안 늘었으면 장비로 나간
+        # 것이 아니다. 성공으로 보고하면 출력이 안 된 채 완료로 넘어간다 : 실제로 그랬다.
+        lines.append("  ⚠ 큐에 작업이 늘지 않았습니다. 장비로 나가지 않은 것으로 봅니다.")
+        lines.append("  → 실패로 보고합니다. 호출자가 기존 경로로 내려가 출력은 나갑니다.")
+        lines.close()
+        return -9999, list(lines)
     if rc == 0:
-        lines.append("  ※ 반환값 0 은 호출이 통과했다는 뜻이지 장비가 받았다는 확인은 아닙니다.")
         # 이 경로는 프린터를 열어 픽셀을 밀어 넣고 닫는다. **닫는 순간 장비로 나간다.**
         # 파일은 껍데기만 남는다(현장에서 16바이트). 그 파일을 뒤이어 또 전송하면 빈 작업이
         # 장비에 하나 더 들어간다. 호출자에게 이미 나갔다고 알린다.
