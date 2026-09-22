@@ -412,10 +412,18 @@ GARMENT_BACKEND = _resolve_backend()
 # 밑판을 만든다. 어느 쪽도 눕히면 안 된다. 진단 목적일 때만 always 로 켠다.
 API_FLATTEN_ALPHA = _ini.get("garment_cli", "api_flatten_alpha", fallback="never").strip().lower()
 # 직접 호출의 RECT 는 장비 도트 단위다. 0.1mm 설정값을 이 해상도로 환산해 넘긴다.
+# 1200 으로 넘겼더니 현장에서 가로세로 2배(면적 4배)로 나와 좌상단만 찍혔다. 장비 인쇄
+# 해상도는 1200dpi 지만 RECT 좌표계는 600dpi 다. 14인치 = 8400.
 try:
-    API_RECT_DPI = _ini.getint("garment_cli", "api_rect_dpi", fallback=1200)
+    API_RECT_DPI = _ini.getint("garment_cli", "api_rect_dpi", fallback=600)
 except ValueError:
-    API_RECT_DPI = 1200
+    API_RECT_DPI = 600
+# 투명 처리(byTransLayer). 0 으로 넘겼더니 알파가 흰색으로 찍혔다. CLI 의 -W 0(흰색을
+# 투명색으로 해석)에 해당하는 자리로 보고 1 을 기본으로 둔다. 어긋나면 0 으로 되돌린다.
+try:
+    API_TRANS_LAYER = _ini.getint("garment_cli", "api_trans_layer", fallback=1)
+except ValueError:
+    API_TRANS_LAYER = 1
 
 # 드라이버 세대에 맞는 API 라이브러리를 고르기 위한 설정·상태.
 GARMENT_API_DLL = _resolve_api_dll_mode()

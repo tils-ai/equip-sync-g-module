@@ -229,6 +229,7 @@ def sample_option(option_type: type, overrides: dict = None) -> ctypes.Structure
     opt.colorTrans = int(getattr(config, "COLOR_TRANS", 0))
     if hasattr(opt, "byMachineMode"):
         opt.byMachineMode = int(getattr(config, "MACHINE_MODE", 0))
+    opt.byTransLayer = int(getattr(config, "API_TRANS_LAYER", 1))
     if hasattr(opt, "byPrintMethod"):
         opt.byPrintMethod = 0  # 0 = 일반 가먼트 출력(DTG)
     if hasattr(opt, "byQuality"):
@@ -576,6 +577,7 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
         f" -> RECT ({rect.left}, {rect.top}, {rect.right}, {rect.bottom}) @{dpi}dpi"
     )
 
+    lines.append(f"  투명 처리  : byTransLayer={opt.byTransLayer}")
     png_path = _prepare_image(png_path, opt, lines)
     lines.append(f"  호출 모양  : variant {variant} : {PRINTFILE_VARIANTS.get(variant, '?')}")
     try:
