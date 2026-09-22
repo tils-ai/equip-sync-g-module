@@ -417,6 +417,7 @@ GARMENT_RUNTIME_DIR = os.path.join(BASE_DIR, "garment-runtime")
 ACTIVE_API_STATE = os.path.join(BASE_DIR, ".active_garment_api")
 # 직접 호출에서 통한 PrintFile 호출 모양(번호). 확정되면 그 모양만 쓴다.
 ACTIVE_PRINTFILE_STATE = os.path.join(BASE_DIR, ".active_garment_printfile")
+ACTIVE_SEND_STATE = os.path.join(BASE_DIR, ".active_garment_send")
 
 # --- folder (spec §11.5 — incoming/processing/done/done/originals/error/logs 통일) ---
 def _path_fallback(paths_key: str, legacy_section: str, legacy_key: str, default_sub: str) -> str:

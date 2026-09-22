@@ -9,7 +9,7 @@ import fonts
 fonts.register()
 
 
-def setup_logging() -> None:
+def setup_logging(to_file: bool = True) -> None:
     """루트 로거 설정 — config.LOG_LEVEL/LOG_FILE 반영.
 
     이 호출이 누락되면 root logger 가 기본 WARNING 레벨이라 agent/processor 의
@@ -34,6 +34,8 @@ def setup_logging() -> None:
     if log_dir:
         os.makedirs(log_dir, exist_ok=True)
     try:
+        if not to_file:
+            raise RuntimeError("자식 모드 — 파일 핸들러 생략")
         fh = logging.FileHandler(config.LOG_FILE, encoding="utf-8")
         fh.setFormatter(fmt)
         root.addHandler(fh)
@@ -101,7 +103,10 @@ from gui import WatcherApp
 
 
 def main():
-    setup_logging()
+    # 자식 모드는 watcher.log 를 건드리지 않는다. 부모와 같은 파일에 동시에 쓰면 부모가 남긴
+    # 줄이 사라진다(현장에서 전송 단계 로그가 통째로 비었다). 자식의 기록은 진단서로 남는다.
+    child_mode = any(a.startswith("--api-") for a in sys.argv)
+    setup_logging(to_file=not child_mode)
     logging.getLogger(__name__).info(
         "=== 실행 빌드: %s · 출력 경로: %s ===", config.APP_VERSION, config.GARMENT_BACKEND
     )
@@ -115,6 +120,32 @@ def main():
             print(line)
             log.info("%s", line)
         raise SystemExit(0)
+    if "--api-send" in sys.argv:
+        import garment_api
+
+        i = sys.argv.index("--api-send")
+        rest = [a for a in sys.argv[i + 1:] if not a.startswith("--")]
+        if len(rest) < 2:
+            print("사용법: --api-send <데이터> <프린터> [--variant N] [--model pro]")
+            raise SystemExit(2)
+
+        def _sflag(name: str) -> str:
+            return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else ""
+
+        try:
+            import ctypes
+
+            ctypes.windll.kernel32.SetErrorMode(0x0002 | 0x0001 | 0x8000)
+        except (AttributeError, OSError):
+            pass
+        rc, lines = garment_api.send(
+            rest[0], rest[1], model=_sflag("--model") or "pro",
+            variant=int(_sflag("--variant") or 0),
+        )
+        for line in lines:
+            print(line)
+        print(f"RC={rc}")
+        raise SystemExit(0 if rc == 0 else 1)
     if "--api-makearxp" in sys.argv:
         i = sys.argv.index("--api-makearxp")
         rest = [a for a in sys.argv[i + 1:] if not a.startswith("--")]

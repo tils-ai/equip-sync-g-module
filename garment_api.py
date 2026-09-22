@@ -333,20 +333,30 @@ def probe(api_dll: str, model: str = "pro") -> list:
     return lines
 
 
+SEND_VARIANTS = {
+    0: "프린터, 데이터, 잡이름",
+    1: "데이터, 프린터, 잡이름",
+}
+
+
 def send(data_path: str, printer_name: str, api_dll: str = "", model: str = "pro",
-         job_name: str = "") -> tuple:
+         job_name: str = "", variant: int = 0) -> tuple:
     """3단계 — 만들어 둔 인쇄 데이터를 장비로 보낸다. CLI 의 `send -A … -P …` 에 해당한다.
 
     문자열 세 개만 넘기는 함수라 구조체 배치와 무관하다. 즉 세대가 달라도 이 호출만은
     안전하다. 인자 순서(프린터, 데이터, 잡 이름)는 벤더 편집기의 호출 형태를 따랐다.
     """
-    lines = []
+    lines = _Trace()
     exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
     api_dll = api_dll or _pick_api(exe)
     if not api_dll:
-        return None, ["API 라이브러리를 찾지 못했습니다."]
+        lines.append("API 라이브러리를 찾지 못했습니다.")
+        lines.close()
+        return None, list(lines)
     if not os.path.isfile(data_path):
-        return None, [f"인쇄 데이터가 없습니다: {data_path}"]
+        lines.append(f"인쇄 데이터가 없습니다: {data_path}")
+        lines.close()
+        return None, list(lines)
 
     prefix = garment_runtime.driver_file_prefix(api_dll)
     lines.append(f"  전송 대상  : {printer_name}")
@@ -354,18 +364,25 @@ def send(data_path: str, printer_name: str, api_dll: str = "", model: str = "pro
     try:
         lib = _load(api_dll)
     except OSError as e:
-        return None, lines + [f"  로드 실패   : {e}"]
+        lines.append(f"  로드 실패   : {e}")
+        lines.close()
+        return None, list(lines)
 
+    lines.append(f"  전송 모양  : variant {variant} — {SEND_VARIANTS.get(variant, '?')}")
+    data = ctypes.c_wchar_p(os.path.abspath(data_path))
+    target = ctypes.c_wchar_p(printer_name)
+    job = ctypes.c_wchar_p(job_name or os.path.basename(data_path))
     try:
         fn = getattr(lib, f"{prefix}PrintData")
         fn.restype = ctypes.c_int32
-        rc = fn(ctypes.c_wchar_p(printer_name),
-                ctypes.c_wchar_p(os.path.abspath(data_path)),
-                ctypes.c_wchar_p(job_name or os.path.basename(data_path)))
+        rc = fn(data, target, job) if variant == 1 else fn(target, data, job)
     except Exception as e:
-        return None, lines + [f"  PrintData 호출 실패: {e}"]
+        lines.append(f"  PrintData 호출 실패: {e}")
+        lines.close()
+        return None, list(lines)
     lines.append(f"  PrintData  : {rc}")
-    return rc, lines
+    lines.close()
+    return rc, list(lines)
 
 
 class _Trace(list):
@@ -414,10 +431,12 @@ class _Trace(list):
 
 # PrintFile 호출 모양 후보. 벤더 자료 없이 확정하지 못해, 자식 프로세스에서 하나씩 시험한다.
 # 모양이 틀리면 스택이 깨져 프로세스가 즉사한다(0xC0000409). 그래서 반드시 자식에서만 돈다.
+# 2026-09-22 현장에서 **모양 2 가 통했다**(PrintFile=0, 5MB 생성). 첫 인자는 이미지가 아니라
+# 프린터명이고 이미지는 네 번째다. 기본 순서를 그 모양부터로 바꾼다.
 PRINTFILE_VARIANTS = {
+    2: "프린터, 옵션*, RECT*, 이미지, 0",
     0: "이미지, 옵션*, RECT*, 잡이름, 0",
     1: "이미지, 옵션*, RECT(값), 잡이름, 0",
-    2: "프린터, 옵션*, RECT*, 이미지, 0",
     3: "OpenPrinter 후 = variant 0",
     4: "이미지, 옵션*, RECT*, 잡이름, 1",
 }

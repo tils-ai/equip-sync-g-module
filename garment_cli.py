@@ -885,13 +885,68 @@ def _make_arxp_isolated(image_path: str, out_path: str, model: str,
     return None, collected
 
 
-def _printfile_variants() -> list:
-    """시험할 호출 모양 순서. 성공한 것이 있으면 그것만 쓴다."""
+def _send_isolated(data_path: str, printer: str, model: str):
+    """전송도 자식 프로세스에서 돌린다.
+
+    PrintData 의 인자 순서도 확정되지 않았다. 생성이 그랬듯 모양이 틀리면 프로세스가 죽는데,
+    부모에서 돌리면 앱이 같이 내려간다. 통한 모양은 확정해 다음부터 그것만 쓴다.
+    """
+    if not getattr(sys, "frozen", False):
+        rc, lines = garment_api.send(data_path, printer, model=model)
+        for line in lines:
+            logger.info("%s", line)
+        return rc
+
+    variants = _cached_variants(config.ACTIVE_SEND_STATE, garment_api.SEND_VARIANTS)
+    for index, variant in enumerate(variants):
+        logger.info("  [%d/%d] 전송 모양 %s 시험 중...", index + 1, len(variants), variant)
+        cmd = [sys.executable, "--api-send", data_path, printer,
+               "--model", model, "--variant", str(variant)]
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, timeout=600,
+                stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW,
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("  전송 모양 %s: 시간 초과(600초)", variant)
+            continue
+        rc, lines = _parse_child(result)
+        for line in lines:
+            logger.info("%s", line)
+        if rc is not None:
+            _save_variant(config.ACTIVE_SEND_STATE, variant)
+            return rc
+        logger.warning("  → 전송 모양 %s 에서 죽었습니다.", variant)
+    _clear_variant(config.ACTIVE_SEND_STATE)
+    return None
+
+
+def _cached_variants(state_path: str, catalog: dict) -> list:
     try:
-        with open(config.ACTIVE_PRINTFILE_STATE, encoding="utf-8") as f:
+        with open(state_path, encoding="utf-8") as f:
             return [int(f.read().strip())]
     except (OSError, ValueError):
-        return sorted(garment_api.PRINTFILE_VARIANTS)
+        return list(catalog)
+
+
+def _save_variant(state_path: str, variant: int) -> None:
+    try:
+        with open(state_path, "w", encoding="utf-8") as f:
+            f.write(str(variant))
+    except OSError:
+        pass
+
+
+def _clear_variant(state_path: str) -> None:
+    try:
+        os.remove(state_path)
+    except OSError:
+        pass
+
+
+def _printfile_variants() -> list:
+    """시험할 호출 모양 순서. 성공한 것이 있으면 그것만 쓴다."""
+    return _cached_variants(config.ACTIVE_PRINTFILE_STATE, garment_api.PRINTFILE_VARIANTS)
 
 
 def _save_printfile_variant(variant: int) -> None:
@@ -974,9 +1029,7 @@ def send_to_printer(arx4_path: str, printer_name: str = None) -> int:
     target = printer_name or config.PRINTER_NAME
     if _api_backend_active(target or ""):
         model = _model_for_exe(_exe_for_model(_preferred_model_for_printer(target or "")) or "") or "pro"
-        rc, lines = garment_api.send(arx4_path, target, model=model)
-        for line in lines:
-            logger.info("%s", line)
+        rc = _send_isolated(arx4_path, target, model)
         if rc is None:
             return -1801
         if rc != 0:
