@@ -4,7 +4,6 @@ import sys
 
 
 def _base_dir():
-    """exe 파일이 있는 폴더 (spec §11.5) — 운영자가 즉시 발견 가능한 위치."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
@@ -15,11 +14,6 @@ INI_PATH = os.path.join(BASE_DIR, "config.ini")
 
 
 def _app_version() -> str:
-    """실행 중인 빌드 이름. 배포 EXE 는 파일명에 버전이 들어 있다.
-
-    현장 로그·진단서에 어느 빌드인지 남지 않아, 고친 버전이 실제로 돌고 있는지 매번
-    되물어야 했다. 별도 상수를 두면 태그와 어긋나므로 파일명을 그대로 쓴다.
-    """
     if getattr(sys, "frozen", False):
         return os.path.splitext(os.path.basename(sys.executable))[0]
     return "개발 실행(소스)"
@@ -176,7 +170,6 @@ level = INFO
 appearance = system
 """
 
-# config.ini가 없으면 기본값으로 생성
 if not os.path.exists(INI_PATH):
     with open(INI_PATH, "w", encoding="utf-8") as f:
         f.write(_DEFAULT_INI)
@@ -185,43 +178,31 @@ _ini = configparser.ConfigParser()
 _ini.read(INI_PATH, encoding="utf-8")
 
 def _parse_printer_names(raw: str) -> list[str]:
-    """콤마 구분 문자열 → 프린터 이름 리스트. 빈 입력 시 빈 리스트 (강제 기본 프린터 주입 금지)."""
     return [n.strip() for n in raw.split(",") if n.strip()]
 
 
-# --- printer ---
-# 가먼트 프린터 (디자인 출력) — 신규 키 garment_name 우선, 미설정 시 기존 name 폴백.
-# 둘 다 비어 있으면 GARMENT_PRINTER_NAMES = [] → agent.py 의 do_garment 가드로 자동 출력 스킵.
 GARMENT_PRINTER_NAMES = _parse_printer_names(
     _ini.get("printer", "garment_name", fallback=_ini.get("printer", "name", fallback=""))
 )
 GARMENT_PRINTER_NAME = GARMENT_PRINTER_NAMES[0] if GARMENT_PRINTER_NAMES else ""
 GARMENT_ENABLED = _ini.getboolean("printer", "garment_enabled", fallback=True)
 GARMENT_MODE = _ini.get("printer", "garment_mode", fallback=_ini.get("printer", "mode", fallback="cli"))
-# 다중 프린터 분배 방식 — round_robin: 작업마다 순차 회전 / single: 항상 첫 번째만 사용
 GARMENT_DISPATCH = _ini.get("printer", "garment_dispatch", fallback="round_robin").strip().lower()
 if GARMENT_DISPATCH not in ("round_robin", "single"):
     GARMENT_DISPATCH = "round_robin"
-# 출력 전송 방식 — manual: 다운로드 후 작업자 GUI 클릭으로 전송 / auto: 받는 즉시 자동 전송
 GARMENT_PRINT_MODE = _ini.get("printer", "garment_print_mode", fallback="manual").strip().lower()
 if GARMENT_PRINT_MODE not in ("manual", "auto"):
     GARMENT_PRINT_MODE = "manual"
-# 인쇄 후 자동 작업 삭제 (GTXpro send -D) — False(기본)=삭제 안 함(장비 수신 이력 보존),
-# True=인쇄 후 장비에서 잡 자동 삭제. legacy(GTX-4 CMD)는 -D 미지원이라 항상 미부여.
 GARMENT_AUTO_DELETE = _ini.getboolean("printer", "garment_auto_delete", fallback=False)
 
-# 작업지시서 프린터 (PDF, 일반 프린터)
 WORK_ORDER_PRINTER_NAME = _ini.get("printer", "work_order_name", fallback="").strip()
 WORK_ORDER_ENABLED = _ini.getboolean("printer", "work_order_enabled", fallback=False)
 
-# 하위호환 alias (printer.py, processor.py가 기존 참조)
 PRINTER_NAMES = GARMENT_PRINTER_NAMES
 PRINTER_NAME = GARMENT_PRINTER_NAME
 PRINTER_MODE = GARMENT_MODE
 
-# --- 가먼트 CLI 파라미터 ---
 def _load_cli_params() -> dict:
-    """가먼트 CLI 파라미터를 dict로 로드. 누락/파싱 오류 시 기본값."""
     def _i(key, default):
         try:
             return _ini.getint("garment_cli", key, fallback=default)
@@ -237,31 +218,25 @@ def _load_cli_params() -> dict:
     def _s(key, default=""):
         return _ini.get("garment_cli", key, fallback=default).strip()
 
-    # print 명령은 -S(size) / -R(magnification) 중 하나가 반드시 지정돼야 함 (-3108).
-    # 둘 다 비면 안전 폴백으로 magnification=1000(=100%) 자동 적용.
     _size = _s("size")
     _mag = _s("magnification")
     if not _size and not _mag:
         _mag = "1000"
 
     return {
-        # CLI
         "GTX_CLI": _s("gtx_cli", "auto").lower(),
         "AUTO_CENTER": _b("auto_center", True),
         "POSITION": _s("position", "00000000") or "00000000",
         "SIZE": _size,
         "MAGNIFICATION": _mag,
         "WHITE_AS": _i("white_as", 0),
-        # XML
         "COPIES": _i("copies", 1),
         "MACHINE_MODE": _i("machine_mode", 0),
         "RESOLUTION": _i("resolution", 1),
         "PLATEN_SIZE": _i("platen_size", 2),
-        # 플레이트 자동 맞춤: 이미지를 플레이트에 contain(축소만, 작으면 원본), 가로 중앙·세로 상단
         "AUTO_FIT": _b("auto_fit", True),
-        # 성인(기본) / 아동(주문서 플레이트 교체 체크) 플레이트 인덱스
-        "PLATEN_ADULT": _i("platen_adult", 2),  # 14x16
-        "PLATEN_CHILD": _i("platen_child", 3),  # 10x12
+        "PLATEN_ADULT": _i("platen_adult", 2),
+        "PLATEN_CHILD": _i("platen_child", 3),
         "INK": _i("ink", 0),
         "ECO_MODE": _b("eco_mode", False),
         "HIGHLIGHT": _i("highlight", 5),
@@ -324,7 +299,6 @@ YELLOW_BALANCE = _gtx["YELLOW_BALANCE"]
 BLACK_BALANCE = _gtx["BLACK_BALANCE"]
 UNI_PRINT = _gtx["UNI_PRINT"]
 
-# GUI 파라미터 패널에서 사용하는 가먼트 CLI 파라미터 키 목록 (저장 시 순서 보존)
 CLI_PARAM_KEYS = [
     "gtx_cli", "auto_center", "position", "size", "magnification", "white_as",
     "copies", "machine_mode", "resolution", "platen_size", "ink",
@@ -336,27 +310,18 @@ CLI_PARAM_KEYS = [
     "uni_print",
 ]
 
-# 플래튼 크기 (0.1mm 단위, 너비 x 높이) — 인치 → 25.4mm 환산
 PLATEN_DIMS = {
-    0: (4064, 5334),  # 16x21 inches
-    1: (4064, 4572),  # 16x18 inches
-    2: (3556, 4064),  # 14x16 inches
-    3: (2540, 3048),  # 10x12 inches
-    4: (1778, 2032),  # 7x8 inches
+    0: (4064, 5334),
+    1: (4064, 4572),
+    2: (3556, 4064),
+    3: (2540, 3048),
+    4: (1778, 2032),
 }
 
-# --- 가먼트 CLI exe 경로 (legacy / pro 계열) ---
 def _resolve_cmd_exe(exe_name: str, ini_key: str) -> str:
-    """CLI exe 탐색.
-
-    우선순위: ini 명시 경로 → exe 옆(수동 교체 우선) → PyInstaller 번들(_MEIPASS) → 개발용 .source.
-    onefile 빌드 시 `--add-data ".source;.source"` 로 동봉된 자료는 실행마다 _MEIPASS 에 풀리므로,
-    BASE_DIR(=exe 폴더)뿐 아니라 _MEIPASS 도 함께 탐색해야 번들본을 사용할 수 있다.
-    """
     explicit = _ini.get("garment_cli", ini_key, fallback="")
     if explicit and os.path.isfile(explicit):
         return explicit
-    # 탐색 베이스: exe 옆(운영자 수동 교체 우선) → 번들 추출 폴더(_MEIPASS)
     bases = [BASE_DIR]
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass and meipass not in bases:
@@ -377,72 +342,37 @@ def _resolve_pro_cli():
     return _resolve_cmd_exe("garment_cli_pro.exe", "cli_pro_path")
 
 
-# 가먼트 CLI 실행파일 경로 (legacy / pro 두 계열). 실제 벤더 파일은 빌드 시 중립명으로 복원된다.
 LEGACY_CLI_EXE = _resolve_legacy_cli()
 PRO_CLI_EXE = _resolve_pro_cli()
-# auto-probe 로 확정된 가먼트 CLI 계열("legacy"/"pro")을 기록·재사용하는 상태 파일.
 ACTIVE_CMD_STATE = os.path.join(BASE_DIR, ".active_garment_cmd")
 
 
 def _resolve_api_dll_mode() -> str:
-    """API 라이브러리 선택 방식.
-
-    auto      = 설치본 먼저, 없거나 안 맞으면 임베드본 (기본)
-    embedded  = 임베드본만
-    installed = 설치본 고정
-    <경로>    = 그 파일로 고정
-    """
     value = _ini.get("garment_cli", "api_dll", fallback="auto").strip()
     return value or "auto"
 
 
 def _resolve_backend() -> str:
-    """출력 백엔드.
-
-    **2026-09-22: CMD 4.0 경로로 고정한다.** 설정이 무엇이든 "cli" 를 돌려준다.
-
-    하루 동안 라이브러리 직접 호출(api/auto)을 만들어 붙였으나 검증되지 않은 채 기본값까지
-    올렸고, 그 결과 출력이 조용히 멈추는 사고까지 냈다. 5.0 세대 가이드와 그에 맞는 CMD 를
-    확보하기 전에는 그 경로를 열지 않는다. 코드는 지우지 않고 입구만 막는다.
-
-    풀 때 되돌릴 자리:
-        아래 return "cli" 를 지우고 원래 세 줄을 살린다.
-
-        value = _ini.get("garment_cli", "backend", fallback="cli").strip().lower()
-        return value if value in ("cli", "api", "auto") else "cli"
-    """
     return "cli"
 
 
 GARMENT_BACKEND = _resolve_backend()
-# 직접 호출의 RECT 는 장비 도트 단위다. 0.1mm 설정값을 이 해상도로 환산해 넘긴다.
-# 1200 으로 넘겼더니 현장에서 가로세로 2배(면적 4배)로 나와 좌상단만 찍혔다. 장비 인쇄
-# 해상도는 1200dpi 지만 RECT 좌표계는 600dpi 다. 14인치 = 8400.
 try:
     API_RECT_DPI = _ini.getint("garment_cli", "api_rect_dpi", fallback=600)
 except ValueError:
     API_RECT_DPI = 600
-# 이미지 전달 방식: file(라이브러리가 파일을 직접 읽음, 알파 버려짐) / rgba(우리가 픽셀을
-# 알파째 넘김, 편집기와 같은 경로). 투명 배경이 필요하면 rgba.
 API_IMAGE_PATH = _ini.get("garment_cli", "api_image_path", fallback="rgba").strip().lower()
-# 투명 처리(byTransLayer). 0 으로 넘겼더니 알파가 흰색으로 찍혔다. CLI 의 -W 0(흰색을
-# 투명색으로 해석)에 해당하는 자리로 보고 1 을 기본으로 둔다. 어긋나면 0 으로 되돌린다.
 try:
     API_TRANS_LAYER = _ini.getint("garment_cli", "api_trans_layer", fallback=1)
 except ValueError:
     API_TRANS_LAYER = 1
 
-# 드라이버 세대에 맞는 API 라이브러리를 고르기 위한 설정·상태.
 GARMENT_API_DLL = _resolve_api_dll_mode()
-# 설치본 라이브러리를 쓸 때 CLI exe 와 함께 복사해 두는 실행 폴더.
 GARMENT_RUNTIME_DIR = os.path.join(BASE_DIR, "garment-runtime")
-# probe 로 확정된 API 라이브러리 경로("" = 임베드본)를 기록·재사용하는 상태 파일.
 ACTIVE_API_STATE = os.path.join(BASE_DIR, ".active_garment_api")
-# 직접 호출에서 통한 PrintFile 호출 모양(번호). 확정되면 그 모양만 쓴다.
 ACTIVE_PRINTFILE_STATE = os.path.join(BASE_DIR, ".active_garment_printfile")
 ACTIVE_SEND_STATE = os.path.join(BASE_DIR, ".active_garment_send")
 
-# --- folder (spec §11.5 — incoming/processing/done/done/originals/error/logs 통일) ---
 def _path_fallback(paths_key: str, legacy_section: str, legacy_key: str, default_sub: str) -> str:
     val = _ini.get("paths", paths_key, fallback="").strip()
     if not val:
@@ -458,13 +388,8 @@ ERROR_DIR = _path_fallback("error", "folder", "error", "error")
 LOG_FILE = _ini.get("log", "file", fallback="").strip() or os.path.join(BASE_DIR, "logs", "watcher.log")
 LOG_LEVEL = _ini.get("log", "level", fallback="INFO").strip().upper()
 
-# --- render ---
-# PNG 이 해상도를 밝히지 않을 때 쓸 기본값 (배치 크기를 실제 치수로 계산하는 데 쓴다)
 RENDER_DPI = _ini.getint("render", "dpi", fallback=300)
 
-# --- poppler ---
-# 경로가 어디서 왔는지도 함께 남긴다. 현장에서 "config.ini 를 고쳤는데 먹었나"를
-# 확인할 방법이 없어 원인 추적이 길어진 적이 있다 (2026-09-17 영등포점).
 POPPLER_SOURCE = ""
 
 
@@ -484,33 +409,25 @@ def _resolve_poppler():
 
 POPPLER_PATH = _resolve_poppler()
 
-# --- api ---
 API_TENANT = _ini.get("api", "tenant", fallback="")
 API_KEY = _ini.get("api", "api_key", fallback="")
 API_BASE_URL = _ini.get("api", "base_url", fallback="https://store.dpl.shop")
 API_POLL_INTERVAL = _ini.getint("api", "poll_interval", fallback=5)
 
-# --- device (장비 상태 폴링, LAN 연결 프린터 전용) ---
 DEVICE_STATUS_ENABLED = _ini.getboolean("device", "status_enabled", fallback=False)
 DEVICE_STATUS_INTERVAL = _ini.getint("device", "status_interval", fallback=5)
 
-# --- download (legacy — 명시되지 않으면 incoming과 통합) ---
 DOWNLOAD_DIR = _ini.get("download", "dir", fallback="").strip() or INCOMING_DIR
 
-# 파일 안정성 확인 파라미터
 FILE_STABLE_CHECK_INTERVAL = 1.0
 FILE_STABLE_CHECK_COUNT = 2
 
-# 폴더 자동 생성 (spec §11.5 6종 + DOWNLOAD_DIR 호환)
 for _d in (INCOMING_DIR, PROCESSING_DIR, DONE_DIR, ORIGINALS_DIR, ERROR_DIR, DOWNLOAD_DIR, os.path.dirname(LOG_FILE)):
     if _d:
         os.makedirs(_d, exist_ok=True)
 
 
 def save_value(section: str, key: str, value: str):
-    """config.ini에 값을 저장한다."""
-    # 구버전 config.ini 에는 이후 추가/개명된 섹션([garment_cli] 등)이 없어
-    # 가드 없이 set() 하면 NoSectionError 가 난다.
     if not _ini.has_section(section):
         _ini.add_section(section)
     _ini.set(section, key, value)
@@ -539,7 +456,6 @@ def set_appearance(value: str) -> None:
 
 
 def reload():
-    """config.ini를 다시 읽어서 모듈 변수를 갱신한다."""
     global PRINTER_NAME, PRINTER_NAMES, PRINTER_MODE, LEGACY_CLI_EXE, PRO_CLI_EXE
     global GARMENT_API_DLL, GARMENT_BACKEND
     global GARMENT_PRINTER_NAME, GARMENT_PRINTER_NAMES, GARMENT_ENABLED, GARMENT_MODE

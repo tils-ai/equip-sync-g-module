@@ -5,23 +5,16 @@ import sys
 import config
 import fonts
 
-# GUI 모듈 import 전에 폰트를 프로세스에 등록
 fonts.register()
 
 
 def setup_logging(to_file: bool = True) -> None:
-    """루트 로거 설정 : config.LOG_LEVEL/LOG_FILE 반영.
-
-    이 호출이 누락되면 root logger 가 기본 WARNING 레벨이라 agent/processor 의
-    logger.info(...) 가 모두 버려져 GUI 로그 박스에 아무것도 안 뜬다.
-    """
     level_name = (config.LOG_LEVEL or "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
 
     root = logging.getLogger()
     root.setLevel(level)
 
-    # 재진입 방지 : 핸들러 중복 부착 회피
     for h in list(root.handlers):
         root.removeHandler(h)
 
@@ -40,7 +33,6 @@ def setup_logging(to_file: bool = True) -> None:
         fh.setFormatter(fmt)
         root.addHandler(fh)
     except Exception:
-        # 파일 핸들러 실패해도 콘솔/큐 핸들러는 살아남도록 무시
         pass
 
     sh = logging.StreamHandler()
@@ -49,27 +41,16 @@ def setup_logging(to_file: bool = True) -> None:
 
 
 def _hard_exit(code: int) -> None:
-    """정리 단계를 건너뛰고 즉시 끝낸다.
-
-    벤더 라이브러리를 부른 프로세스는 일을 마치고도 종료되지 않고 매달리는 경우가 있다.
-    현장에서 인쇄 데이터를 5MB 만들어 놓고도 자식이 안 죽어, 부모가 180초를 기다린 뒤
-    실패로 보고 다음 모양으로 넘어갔다. 결과를 이미 남겼으므로 미련 없이 끊는다.
-    """
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(code)
 
 
 def run_api_selftest() -> int:
-    """`--api-selftest` : API 직접 호출 전환의 1단계(구조체 정렬) 점검만 하고 끝낸다.
-
-    GUI 를 띄우지 않는다. 현장 PC 에서 cmd 한 줄로 실행해 보고서만 받아오기 위한 통로다.
-    인쇄는 하지 않으므로 장비·옷에 영향이 없다.
-    """
     import garment_api
 
     path = garment_api.self_test_report()
-    print(f"점검 보고서: {path}")  # 콘솔에서 실행했을 때만 보인다
+    print(f"점검 보고서: {path}")
     logging.getLogger(__name__).info("API 점검 보고서: %s", path)
     return 0
 
@@ -77,11 +58,6 @@ def run_api_selftest() -> int:
 def run_api_makearxp(png_path: str, out_path: str = "", opt_json: str = "",
                      position: str = "", size: str = "", model: str = "pro",
                      variant: int = 0, printer: str = "") -> int:
-    """`--api-makearxp <png> [출력경로]` : 2단계 시험. 인쇄 데이터만 만들어 본다.
-
-    장비로 보내는 단계는 타지 않는다. 다만 마지막 인자의 의미가 미확정이라,
-    **첫 실행은 장비 전원을 끄거나 USB 를 뽑고** 하는 것을 전제한다.
-    """
     import garment_api
 
     if not os.path.isfile(png_path):
@@ -105,7 +81,6 @@ def run_api_makearxp(png_path: str, out_path: str = "", opt_json: str = "",
     for line in lines:
         print(line)
         log.info("%s", line)
-    # 부모가 결과를 읽는 약속된 줄. 자식이 죽으면 이 줄이 없다 → 부모가 크래시로 판정한다.
     print(f"RC={rc}")
     log.info("직접 호출 생성 반환 코드: %s", rc)
     _hard_exit(0 if rc == 0 else 1)
@@ -115,12 +90,8 @@ from gui import WatcherApp
 
 
 def main():
-    # 자식 모드는 watcher.log 를 건드리지 않는다. 부모와 같은 파일에 동시에 쓰면 부모가 남긴
-    # 줄이 사라진다(현장에서 전송 단계 로그가 통째로 비었다). 자식의 기록은 진단서로 남는다.
     child_mode = any(a.startswith("--api-") for a in sys.argv)
     if child_mode:
-        # 한국어 Windows 콘솔은 cp949 라 일부 문자에서 인코딩 오류로 죽는다. 자식의 출력은
-        # 부모가 UTF-8 로 읽으므로 여기서 맞춘다. 인코딩 때문에 작업이 실패하면 안 된다.
         for stream in (sys.stdout, sys.stderr):
             try:
                 stream.reconfigure(encoding="utf-8", errors="replace")

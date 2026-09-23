@@ -1,9 +1,3 @@
-"""Pretendard 폰트 로더 — 패키지된 .ttf를 프로세스에 등록 후 family명을 반환.
-
-PyInstaller 동결 빌드: sys._MEIPASS/assets/fonts 에서 로드 (--add-data로 번들).
-개발 모드: 이 파일과 같은 디렉토리의 assets/fonts/ 에서 로드.
-실패 시 OS 기본 한글 폰트(Malgun Gothic)로 폴백 — 이 경우 경고 로그를 남긴다.
-"""
 
 from __future__ import annotations
 
@@ -24,11 +18,6 @@ def _resource_dir() -> Path:
 
 
 def bundled_font_path(bold: bool = False) -> Path | None:
-    """PIL/reportlab 등 family명이 아닌 파일 경로가 필요한 곳에서 사용.
-
-    번들된 Pretendard TTF 경로를 반환. Bold 요청인데 Bold 파일이 없으면 Regular 반환.
-    번들 파일 자체가 없으면 None.
-    """
     font_dir = _resource_dir()
     bold_path = font_dir / "Pretendard-Bold.ttf"
     regular_path = font_dir / "Pretendard-Regular.ttf"
@@ -43,7 +32,6 @@ _cached_family: str | None = None
 
 
 def register() -> str:
-    """앱 시작 시 1회 호출. 이후 호출은 캐시된 값 반환."""
     global _cached_family
     if _cached_family is not None:
         return _cached_family
@@ -93,5 +81,4 @@ def register() -> str:
 
 
 def family() -> str:
-    """캐시된 family명 반환 (register 미호출 시 fallback)."""
     return _cached_family or FALLBACK
