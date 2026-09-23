@@ -1,19 +1,3 @@
-"""가먼트 API 직접 호출 : 1단계: 구조체 선언과 정렬 검증.
-
-지금 출력 경로는 `우리 코드 → 벤더 CLI(exe) → 벤더 API(dll) → 드라이버` 다. 구조체를 채우는
-주체가 CLI 라서 **CLI 세대가 곧 우리 세대**이고, 현장이 드라이버를 올릴 때마다 CLI 를 새로
-받아야 한다. 그 CLI 는 공개 배포물이 아니다. 2026-09-22 현장 장애의 구조적 원인이었다.
-
-구조체를 우리가 직접 선언하면 그 고리가 끊어진다. API 라이브러리는 드라이버·벤더 편집기가
-현장 PC 에 이미 깔아 두므로 세대가 저절로 맞고, 우리가 들고 다닐 필요도 없어진다.
-
-이 모듈은 그 전환의 **1단계**다. 실제 출력은 아직 하지 않는다. 구조체 배치가 라이브러리와
-맞는지만 확인한다. 배치가 틀리면 값이 한 칸씩 밀린 채 인쇄되는데, 그건 출력이 실패하는 것보다
-훨씬 비싼 사고다(옷을 버린다). 그래서 점검을 먼저 통과시키고 나서 다음 단계로 간다.
-
-필드 순서·타입의 출처는 dps-store 문서 허브의 5.x 구조체 문서다. 폭이 고정된 타입만 쓴다 -
-개발 장비(macOS/Linux)에서도 오프셋이 같아야 표와 대조할 수 있기 때문이다.
-"""
 
 import ctypes
 import datetime
@@ -28,7 +12,7 @@ MAX_PATH = 260
 JOB_NAME_LEN = 128
 
 BYTE = ctypes.c_ubyte
-BOOL = ctypes.c_int32       # Windows BOOL = int
+BOOL = ctypes.c_int32
 INT = ctypes.c_int32
 UINT = ctypes.c_uint32
 COLORREF = ctypes.c_uint32
@@ -36,7 +20,6 @@ LONG = ctypes.c_int32
 
 
 class SIZE(ctypes.Structure):
-    """벤더 편집기의 FFI 선언과 같은 SIZE. 폭·높이를 **구조체 하나로** 넘긴다."""
 
     _fields_ = [("cx", LONG), ("cy", LONG)]
 
@@ -46,15 +29,6 @@ class RECT(ctypes.Structure):
 
 
 class ProOption(ctypes.Structure):
-    """pro 계열 5.x 인쇄 옵션.
-
-    4.x 대비 `byPrintMethod` · `byWInkVer` · `byQuality` · `bFastMode` 가 늘었다. 특히
-    `byWInkVer` 가 `byInk` 와 `byResolution` **사이**에 끼어 그 뒤가 전부 밀린다.
-
-    **패딩 없는 배치(`_pack_ = 1`)다.** 벤더 편집기의 FFI 선언이 packed 구조체를 쓴다.
-    기본 정렬로 두면 1바이트 항목 뒤 4바이트 항목 앞에 패딩이 끼어 그 뒤가 전부 밀리고,
-    라이브러리는 엉뚱한 값을 읽어 범위 초과로 거부한다(현장에서 -1111 로 나타났다).
-    """
 
     _pack_ = 1
     _fields_ = [
@@ -102,10 +76,6 @@ class ProOption(ctypes.Structure):
 
 
 class LegacyOption(ctypes.Structure):
-    """legacy 계열 5.x 세대 인쇄 옵션. 이 세대에는 여기에도 `byWInkVer` 가 들어갔다.
-
-    pro 와 마찬가지로 패딩 없는 배치다.
-    """
 
     _pack_ = 1
     _fields_ = [
@@ -148,11 +118,9 @@ class LegacyOption(ctypes.Structure):
     ]
 
 
-# 기본 정렬(패딩 있음) 변형 : 어느 쪽이 맞는지 현장에서 한 번에 가리기 위해 함께 둔다.
 AlignedProOption = type("AlignedProOption", (ctypes.Structure,), {"_fields_": list(ProOption._fields_)})
 AlignedLegacyOption = type("AlignedLegacyOption", (ctypes.Structure,), {"_fields_": list(LegacyOption._fields_)})
 
-# 계열별 배치 후보. packed 를 먼저 둔다(벤더 편집기 선언이 packed 다).
 _LAYOUTS = {
     "pro": (("packed", ProOption), ("기본정렬", AlignedProOption)),
     "legacy": (("packed", LegacyOption), ("기본정렬", AlignedLegacyOption)),
@@ -170,7 +138,6 @@ def option_type_for(api_dll: str, model: str) -> type:
 ID = "id"
 BOOLEAN = "bool"
 
-# 설정 이름 → (구조체 필드, 변환). CLI 가 XML 로 넘기던 값과 같은 것을 구조체에 싣는다.
 _FIELD_MAP = {
     "copies": ("uiCopies", ID),
     "platen_size": ("byPlatenSize", ID),
@@ -200,12 +167,10 @@ _FIELD_MAP = {
     "uni_print": ("bUniDirection", BOOLEAN),
 }
 
-# 아직 구조체 대응을 확정하지 못한 CLI 인자. 쓰이면 로그로 알린다.
 UNMAPPED_ARGS = ("-W (흰색 해석)", "-R (상대 배율)")
 
 
 def sample_option(option_type: type, overrides: dict = None) -> ctypes.Structure:
-    """옵션 값 구성. 설정을 기본으로 깔고 호출자가 준 값으로 덮는다."""
     opt = option_type()
     opt.szFileName = b""
     opt.szJobName = b"selftest"
@@ -238,9 +203,9 @@ def sample_option(option_type: type, overrides: dict = None) -> ctypes.Structure
         opt.byMachineMode = int(getattr(config, "MACHINE_MODE", 0))
     opt.byTransLayer = int(getattr(config, "API_TRANS_LAYER", 1))
     if hasattr(opt, "byPrintMethod"):
-        opt.byPrintMethod = 0  # 0 = 일반 가먼트 출력(DTG)
+        opt.byPrintMethod = 0
     if hasattr(opt, "byQuality"):
-        opt.byQuality = 1  # 1 = Standard
+        opt.byQuality = 1
 
     for key, value in (overrides or {}).items():
         mapped = _FIELD_MAP.get(key)
@@ -248,35 +213,28 @@ def sample_option(option_type: type, overrides: dict = None) -> ctypes.Structure
             continue
         name, kind = mapped
         if not hasattr(opt, name):
-            continue  # 계열에 없는 필드(예: legacy 전용) 는 건너뛴다
+            continue
         setattr(opt, name, (1 if value else 0) if kind is BOOLEAN else int(value))
     return opt
 
 
 def field_layout(option_type: type) -> list:
-    """(필드명, 오프셋, 크기) 목록 : 보고서에서 표와 대조하기 위한 것."""
     return [
         (name, getattr(option_type, name).offset, getattr(option_type, name).size)
         for name, _ in option_type._fields_
     ]
 
 
-# 라이브러리가 우리 구조체보다 뒤까지 읽어도 프로세스가 죽지 않도록 넉넉히 잡는 버퍼 크기.
-# 배치 후보(packed 739B / 기본정렬 756B)를 번갈아 시험하는 구조라, 작은 쪽을 넘겼을 때
-# 라이브러리가 큰 쪽 기준으로 읽으면 할당 범위를 넘어 접근 위반이 난다. 그러면 GUI 까지
-# 통째로 강제 종료된다(현장에서 실제로 그랬다). 항상 이 크기로 잡아 넘긴다.
 OPTION_BUFFER = 4096
 
 
 def _as_buffer(opt: ctypes.Structure):
-    """옵션을 여유 있는 버퍼에 담아 돌려준다. 호출에는 이 버퍼의 주소를 넘긴다."""
     buf = ctypes.create_string_buffer(OPTION_BUFFER)
     ctypes.memmove(buf, ctypes.byref(opt), ctypes.sizeof(opt))
     return buf
 
 
 def _load(api_dll: str):
-    """API 라이브러리 로드. 같은 폴더의 의존 모듈도 찾도록 탐색 경로를 더해 준다."""
     folder = os.path.dirname(os.path.abspath(api_dll))
     if hasattr(os, "add_dll_directory") and os.path.isdir(folder):
         os.add_dll_directory(folder)
@@ -285,13 +243,8 @@ def _load(api_dll: str):
 
 
 def probe(api_dll: str, model: str = "pro") -> list:
-    """라이브러리를 열어 구조체 배치를 점검하고 결과 줄 목록을 돌려준다.
-
-    핵심은 CheckOption 이다. 0 이면 배치가 맞는 것이고, -11xx 가 나오면 **그 코드가 가리키는
-    필드 언저리에서 밀렸다**는 뜻이라 어디를 고쳐야 할지까지 나온다.
-    """
     lines = []
-    prefix = garment_runtime.driver_file_prefix(api_dll)  # 예: 함수 접두사
+    prefix = garment_runtime.driver_file_prefix(api_dll)
     option_type = option_type_for(api_dll, model)
     lines.append(f"  라이브러리 : {garment_runtime.describe_file(api_dll)}")
     lines.append(f"  함수 접두사 : {prefix}")
@@ -310,7 +263,7 @@ def probe(api_dll: str, model: str = "pro") -> list:
             return None, "함수 없음"
         try:
             return fn(*args), None
-        except Exception as e:  # 호출 규약·인자 불일치
+        except Exception as e:
             return None, f"호출 실패: {e}"
 
     rc, err = call("GetCustom")
@@ -351,11 +304,6 @@ SEND_VARIANTS = {
 
 def send(data_path: str, printer_name: str, api_dll: str = "", model: str = "pro",
          job_name: str = "", variant: int = 0) -> tuple:
-    """3단계 : 만들어 둔 인쇄 데이터를 장비로 보낸다. CLI 의 `send -A … -P …` 에 해당한다.
-
-    문자열 세 개만 넘기는 함수라 구조체 배치와 무관하다. 즉 세대가 달라도 이 호출만은
-    안전하다. 인자 순서(프린터, 데이터, 잡 이름)는 벤더 편집기의 호출 형태를 따랐다.
-    """
     lines = _Trace()
     exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
     api_dll = api_dll or _pick_api(exe)
@@ -396,11 +344,6 @@ def send(data_path: str, printer_name: str, api_dll: str = "", model: str = "pro
 
 
 class _Trace(list):
-    """줄을 모으면서 동시에 파일로 흘려 쓴다.
-
-    벤더 라이브러리가 프로세스를 죽이면 버퍼에 남은 표준 출력은 사라진다. 어디까지 갔는지
-    남기려면 한 줄마다 파일에 밀어 넣어야 한다. 이 파일이 직접 호출 경로의 진단서다.
-    """
 
     def __init__(self):
         super().__init__()
@@ -439,10 +382,6 @@ class _Trace(list):
             self._fh = None
 
 
-# PrintFile 호출 모양 후보. 벤더 자료 없이 확정하지 못해, 자식 프로세스에서 하나씩 시험한다.
-# 모양이 틀리면 스택이 깨져 프로세스가 즉사한다(0xC0000409). 그래서 반드시 자식에서만 돈다.
-# 2026-09-22 현장에서 **모양 2 가 통했다**(PrintFile=0, 5MB 생성). 첫 인자는 이미지가 아니라
-# 프린터명이고 이미지는 네 번째다. 기본 순서를 그 모양부터로 바꾼다.
 PRINTFILE_VARIANTS = {
     2: "프린터, 옵션*, RECT*, 이미지, 0",
     0: "이미지, 옵션*, RECT*, 잡이름, 0",
@@ -452,10 +391,6 @@ PRINTFILE_VARIANTS = {
 }
 
 
-# 벤더 편집기가 쓰는 경로. PrintFile 은 파일을 라이브러리가 직접 읽어 알파를 버리지만,
-# 이 경로는 우리가 픽셀을 알파째 밀어 넣는다. 투명 배경을 살리려면 이쪽이어야 한다.
-#   open(프린터, 옵션JSON) -> processImageRGBA(w, h, RGBA, y, 흰색변환) -> close()
-# 옵션을 JSON 으로 넘기므로 구조체 배치(packed) 문제도 함께 비껴간다.
 OPTION_JSON_FIELDS = (
     "szFileName", "uiCopies", "szJobName", "byPrintMethod", "byPlatenSize", "byInk",
     "byResolution", "bEcoMode", "byQuality", "byInkVolume", "byDoublePrint", "byHighlight",
@@ -465,16 +400,13 @@ OPTION_JSON_FIELDS = (
     "iYellowBalance", "iBlackBalance", "bUniDirection", "byTransLayer",
 )
 
-BAND_HEIGHT = 300  # 편집기와 같은 밴드 높이
+BAND_HEIGHT = 300
 
-# 알파를 "투명색"으로 옮길 때 쓰는 키 컬러. 디자인에 거의 안 쓰이는 순수 마젠타를 쓴다.
-# COLORREF 는 R + G*256 + B*65536 (가이드 예시 RGB(161,77,215) = 14110113 로 검증).
 TRANSPARENT_KEY_RGB = (255, 0, 255)
 TRANSPARENT_KEY_COLORREF = 255 + 0 * 256 + 255 * 65536
 
 
 def option_json(opt: ctypes.Structure) -> str:
-    """구조체 값을 편집기가 쓰는 JSON 형태로 옮긴다."""
     import json
 
     data = {}
@@ -493,11 +425,6 @@ def option_json(opt: ctypes.Structure) -> str:
 
 def rgba_probe(png_path: str, printer_name: str, api_dll: str = "", model: str = "pro",
                overrides: dict = None) -> list:
-    """픽셀 전달 인자 모양을 한 번에 훑는다.
-
-    한 모양씩 빌드를 돌리면 현장 왕복이 너무 길다. 프린터를 열어 둔 채로 후보를 차례로 불러
-    반환 코드를 전부 기록한다. 0 이 나오는 모양이 정답이다.
-    """
     lines = _Trace()
     exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
     api_dll = api_dll or _pick_api(exe)
@@ -566,7 +493,6 @@ def rgba_probe(png_path: str, printer_name: str, api_dll: str = "", model: str =
 
 
 def printer_jobs(printer_name: str) -> str:
-    """Windows 프린터 큐에 걸린 작업 목록. 장비가 실제로 뭔가 받았는지 보는 가장 직접적인 신호."""
     if not printer_name:
         return "(프린터 미지정)"
     try:
@@ -577,8 +503,6 @@ def printer_jobs(printer_name: str) -> str:
     try:
         handle = win32print.OpenPrinter(printer_name)
         try:
-            # level 1 은 제출 시각을 변환하느라 win32timezone 을 끌어온다. 없으면 level 0 으로
-            # 내려간다 : 개수만 알아도 "장비로 나갔는가"는 판정된다.
             try:
                 jobs = win32print.EnumJobs(handle, 0, 99, 1)
             except Exception:
@@ -604,7 +528,6 @@ def printer_jobs(printer_name: str) -> str:
 def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "",
                model: str = "pro", overrides: dict = None, white_convert: int = 0,
                position: str = "", size: str = "") -> tuple:
-    """알파를 살려 출력한다. 우리가 픽셀을 직접 넘기는 경로."""
     lines = _Trace()
     exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
     api_dll = api_dll or _pick_api(exe)
@@ -615,8 +538,6 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
     prefix = garment_runtime.driver_file_prefix(api_dll)
     option_type = option_type_for(api_dll, model)
     opt = sample_option(option_type, overrides)
-    # 이 경로는 프린터로 직접 보낸다. 옵션에 출력 파일 경로를 실으면 장비 대신 파일로 빠질 수
-    # 있다(현장에서 16바이트 껍데기만 남고 장비는 못 받았다). 파일명은 비우고 잡 이름만 준다.
     opt.szFileName = b""
     opt.szJobName = os.path.basename(png_path).encode("utf-8", "ignore")[:JOB_NAME_LEN - 1]
 
@@ -650,9 +571,6 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
         lines.close()
         return None, list(lines)
 
-    # 이 계열에는 JSON 입구(OpenPrinterJson)가 없다. 5.0.0.19 에도 없었다. 구조체를 받는
-    # OpenPrinter 를 쓴다. 인자 순서는 확정되지 않아 후보를 차례로 시도한다 : 틀리면 오류
-    # 코드가 돌아오거나 프로세스가 죽는데, 이 함수는 자식에서만 돌므로 앱은 살아 있는다.
     handle = ctypes.c_void_p()
     try:
         opener = getattr(lib, f"{prefix}OpenPrinter")
@@ -663,7 +581,6 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
         return None, list(lines)
 
     optbuf = _as_buffer(opt)
-    # 편집기 선언: OpenPrinter(out HANDLE*, WSTRING, 옵션)
     opener.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_wchar_p, ctypes.c_void_p]
     try:
         rc = opener(ctypes.byref(handle), ctypes.c_wchar_p(printer_name), ctypes.cast(optbuf, ctypes.c_void_p))
@@ -694,9 +611,6 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
     jobs_after = jobs_before
     rc = 0
     try:
-        # 이 경로에는 RECT 가 없다. 크기와 위치는 **픽셀 자체**가 정한다. 그래서 장비 좌표계
-        # 해상도(600dpi)로 키운 뒤, 플래튼 폭만큼의 캔버스에 지정 위치로 붙여 넘긴다.
-        # 원본 300dpi 를 그대로 넣으면 좌표계가 절반이라 또 반으로 찍힌다.
         dots_dpi = int(getattr(config, "API_RECT_DPI", 600) or 600)
         to_dots = lambda v: int(round(v * dots_dpi / 254.0))  # noqa: E731
         plate_w10, plate_h10 = getattr(config, "PLATEN_DIMS", {}).get(
@@ -721,9 +635,6 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
         stride = canvas_w * 4
         lines.append(f"  밴드       : {BAND_HEIGHT}행씩 {-(-canvas_h // BAND_HEIGHT)}회")
 
-        # 픽셀 전달 인자 모양도 확정되지 않았다. 열어 둔 핸들을 함께 넘기는 모양이 유력하다
-        # (open 이 핸들을 돌려주고, close 도 핸들을 받는 구조로 보인다). 첫 밴드에서 모양을
-        # 정하고 나머지는 그 모양으로 민다.
         def _shapes(width, rows, buf, y):
             return (
                 ("핸들, w, h, 버퍼, y, 변환",
@@ -740,10 +651,6 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
                                  ctypes.c_int32(y))),
             )
 
-        # 벤더 편집기(Graphics Lab 9)의 FFI 선언이 정답이다.
-        #   ProcessImage_RGBA(HANDLE, SIZE, BYTE*, INT, BOOL)
-        # 폭·높이는 따로 넘기는 두 정수가 아니라 **SIZE 구조체 하나**다. 그동안 두 정수로
-        # 넘겨서 -1602/-1603 이 났다. 핸들은 값으로, 버퍼는 포인터로 넘긴다.
         process.argtypes = [
             ctypes.c_void_p, SIZE, ctypes.POINTER(ctypes.c_ubyte),
             ctypes.c_int32, ctypes.c_int32,
@@ -792,16 +699,11 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
     size = os.path.getsize(out_path) if os.path.isfile(out_path) else 0
     delivered = jobs_after != jobs_before and "조회 실패" not in jobs_after
     if rc == 0 and not delivered:
-        # 반환값 0 은 호출이 통과했다는 뜻일 뿐이다. 큐에 아무것도 안 늘었으면 장비로 나간
-        # 것이 아니다. 성공으로 보고하면 출력이 안 된 채 완료로 넘어간다 : 실제로 그랬다.
         lines.append("  ⚠ 큐에 작업이 늘지 않았습니다. 장비로 나가지 않은 것으로 봅니다.")
         lines.append("  → 실패로 보고합니다. 호출자가 기존 경로로 내려가 출력은 나갑니다.")
         lines.close()
         return -9999, list(lines)
     if rc == 0:
-        # 이 경로는 프린터를 열어 픽셀을 밀어 넣고 닫는다. **닫는 순간 장비로 나간다.**
-        # 파일은 껍데기만 남는다(현장에서 16바이트). 그 파일을 뒤이어 또 전송하면 빈 작업이
-        # 장비에 하나 더 들어간다. 호출자에게 이미 나갔다고 알린다.
         lines.append("DIRECT_SENT")
         lines.append(f"  전송 완료  : 닫는 순간 장비로 나갔습니다 (남은 파일 {size:,} bytes 는 껍데기)")
     else:
@@ -811,15 +713,6 @@ def rgba_print(png_path: str, out_path: str, printer_name: str, api_dll: str = "
 
 
 def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
-    """라이브러리에 넘기기 전 이미지를 다듬는다. 원본은 건드리지 않는다.
-
-    **알파는 어떤 경우에도 건드리지 않는다.** 한때 컬러 전용일 때 흰색으로 눕히는 길을 뒀는데
-    잘못된 발상이었다. 같은 디자인이 유색 옷으로 가면 그 알파 영역에 흰 밑판이 깔려 사각형이
-    통째로 찍힌다. 옷 색에 따라 디자인이 다르게 취급되면 안 된다. 알파는 알파다.
-
-    DPI 는 없을 때만 박는다. 크기는 RECT 가 정하므로 지금은 영향이 없지만, 값이 비어 있는
-    것보다는 명시된 편이 낫다. 픽셀은 바뀌지 않는다.
-    """
     try:
         from PIL import Image
     except ImportError:
@@ -836,12 +729,6 @@ def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
                 return png_path
             prepared = img.convert("RGBA") if has_alpha else img.convert("RGB")
             if has_alpha:
-                # 파일 경로는 라이브러리가 PNG 를 직접 읽으며 알파를 버린다. 대신 가이드가
-                # 정의한 "투명색"을 쓴다 : 완전 투명한 픽셀만 키 컬러로 칠하고, 그 색을
-                # 투명색으로 지정하면 잉크가 나가지 않는다. 화이트 잉크 밑판도 안 생긴다.
-                #
-                # 반투명 픽셀은 색을 섞지 않고 원래 색 그대로 둔다. 키 컬러와 섞으면 가장자리에
-                # 그 색 테두리가 생긴다.
                 alpha = prepared.getchannel("A")
                 rgb = prepared.convert("RGB")
                 key = Image.new("RGB", prepared.size, TRANSPARENT_KEY_RGB)
@@ -868,17 +755,6 @@ def _prepare_image(png_path: str, opt: ctypes.Structure, lines) -> str:
 def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro",
               position: str = "", size: str = "", overrides: dict = None,
               variant: int = 0, printer_name: str = "") -> tuple:
-    """2단계 시험 : 라이브러리를 직접 불러 PNG 에서 인쇄 데이터를 만든다.
-
-    `PrintFile(입력경로, 옵션, RECT, 잡이름, BOOL)` 한 번으로 되는지 확인하는 것이 목적이다.
-    출력 파일 경로는 옵션의 `szFileName` 에 실어 보낸다 : CLI 의 `-A` 에 해당한다.
-
-    ⚠ **아직 미검증 경로다.** 마지막 BOOL 인자의 의미를 벤더 자료 없이 확정하지 못했다.
-    장비로 바로 보내는 뜻일 가능성을 배제할 수 없으므로, **첫 실행은 장비 전원을 끄거나 USB 를
-    뽑은 상태에서** 한다. 그 상태면 최악이라도 오류 코드만 돌아온다.
-
-    반환: (rc, 설명 줄 목록)
-    """
     lines = _Trace()
     exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
     api_dll = api_dll or _pick_api(exe)
@@ -900,8 +776,6 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
     except OSError as e:
         return None, lines + [f"  로드 실패   : {e}"]
 
-    # 배치가 틀린 채 진행하면 값이 밀린 데이터가 만들어진다. 반드시 먼저 막는다.
-    # 배치 후보(packed / 기본정렬)를 차례로 검사해 통과하는 쪽을 쓴다.
     try:
         check = getattr(lib, f"{prefix}CheckOption")
         check.restype = ctypes.c_int32
@@ -928,9 +802,6 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
             opt, rc, option_type_used = candidate, code, option_type
     if rc != 0:
         option_type = option_type_used
-        # 어느 항목이 걸렸는지 라이브러리에 직접 물어 통과값을 찾는다. 세대가 바뀌면 항목의
-        # 유효 범위·의미도 같이 바뀌는데(5.x 는 항목이 넷 늘었다), 그때마다 현장을 한 번 더
-        # 왕복시키는 대신 여기서 맞춘다. 무엇을 바꿨는지는 반드시 남긴다.
         fixed, note = _autofix(check, option_type, overrides, file_name, job_name)
         if fixed is None:
             lines.append("  → 통과하는 값을 찾지 못했습니다. 생성을 중단합니다(밀린 값으로 만들면 안 됨).")
@@ -941,10 +812,8 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
 
     left, top = _parse_pos(position or getattr(config, "POSITION", "00000000"))
     width, height = _parse_pos(size or getattr(config, "SIZE", "") or "00000000")
-    # RECT 는 0.1mm 가 아니라 **장비 도트** 단위다. CLI 의 -S/-L 은 0.1mm 였으므로 환산한다.
-    # 그대로 넘겼더니 현장에서 355.6mm 짜리가 75mm(21%)로 찍혔다 : 3556 을 도트로 읽은 값이다.
     dpi = int(getattr(config, "API_RECT_DPI", 1200) or 1200)
-    to_dots = lambda v: int(round(v * dpi / 254.0))  # noqa: E731 (254 = 1 inch in 0.1mm)
+    to_dots = lambda v: int(round(v * dpi / 254.0))  # noqa: E731
     rect = RECT(to_dots(left), to_dots(top), to_dots(left + width), to_dots(top + height))
     lines.append(
         f"  배치       : ({left}, {top}) {width}x{height} (0.1mm)"
@@ -962,7 +831,6 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
         buf = _as_buffer(opt)
 
         if variant == 3:
-            # 프린터를 먼저 연 뒤 호출한다. 벤더 편집기도 출력 전에 항상 연다.
             handle = ctypes.c_void_p()
             try:
                 opener = getattr(lib, f"{prefix}OpenPrinter")
@@ -996,10 +864,6 @@ def make_arxp(png_path: str, out_path: str, api_dll: str = "", model: str = "pro
 
 
 def _autofix(check, option_type: type, overrides: dict, file_name: bytes, job_name: bytes):
-    """CheckOption 을 통과하는 값을 한 항목씩 바꿔 가며 찾는다.
-
-    반환: (옵션, 무엇을 바꿨는지) : 못 찾으면 (None, "").
-    """
     for name, values in _PROBE_CANDIDATES:
         if not hasattr(option_type, name):
             continue
@@ -1020,14 +884,12 @@ def _autofix(check, option_type: type, overrides: dict, file_name: bytes, job_na
 
 
 def _pick_api(exe: str) -> str:
-    """이 시험에 쓸 라이브러리 : 설치본이 있으면 그것, 없으면 임베드본."""
     embedded = garment_runtime.api_dll_for(exe)
     installed = garment_runtime.installed_api_dlls(embedded)
     return installed[0] if installed else embedded
 
 
 def _parse_pos(value: str) -> tuple:
-    """8자리 문자열(앞4=가로, 뒤4=세로, 0.1mm)을 정수 쌍으로."""
     text = (value or "").strip() or "00000000"
     try:
         return int(text[:4]), int(text[4:8])
@@ -1035,7 +897,6 @@ def _parse_pos(value: str) -> tuple:
         return 0, 0
 
 
-# 후보값 : CheckOption 이 거부할 때 한 항목씩 바꿔 가며 통과 조합을 찾는다.
 _PROBE_CANDIDATES = (
     ("byDoublePrint", (0, 1, 2, 3)),
     ("byQuality", (0, 1, 2, 3, 4)),
@@ -1053,11 +914,6 @@ _PROBE_CANDIDATES = (
 
 
 def probe_option(api_dll: str = "", model: str = "pro") -> list:
-    """CheckOption 이 거부할 때, 어느 항목 때문인지 한 항목씩 바꿔 가며 찾는다.
-
-    코드 번호만 보고 추측하면 왕복이 길어진다. 라이브러리에 직접 물어보는 편이 빠르다.
-    호출은 전부 메모리 안에서 끝나므로 장비·옷에 영향이 없다.
-    """
     lines = []
     exe = config.PRO_CLI_EXE if model == "pro" else config.LEGACY_CLI_EXE
     api_dll = api_dll or _pick_api(exe)
@@ -1137,7 +993,6 @@ def probe_option(api_dll: str = "", model: str = "pro") -> list:
 
 
 def self_test_report() -> str:
-    """임베드본·설치본 모두를 점검한 보고서를 파일로 남기고 경로를 돌려준다."""
     now = datetime.datetime.now()
     log_dir = os.path.dirname(config.LOG_FILE) or os.path.join(config.BASE_DIR, "logs")
     diag_dir = os.path.join(log_dir, "diagnostics")
