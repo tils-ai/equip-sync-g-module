@@ -1,4 +1,3 @@
-"""가먼트 CLI용 인쇄 설정 XML 생성."""
 
 import logging
 import xml.etree.ElementTree as ET
@@ -7,10 +6,6 @@ import config
 
 logger = logging.getLogger(__name__)
 
-# 가이드 3-1-2 요소별 유효 범위 (legacy/pro 공통 — 두 가이드가 같은 값을 정의한다).
-# 범위를 벗어나면 CLI 가 -11xx 로 즉시 실패한다. 설정 화면의 고급 항목이 자유 입력이라
-# 0 같은 값이 들어가기 쉬운데, 그 실패는 코드 번호로만 보여 현장에서 원인을 못 찾는다.
-# 여기서 범위 안으로 당기고 무엇을 바꿨는지 로그에 남긴다.
 _VALUE_RANGES = {
     "uiCopies": (1, 999),
     "byPlatenSize": (0, 4),
@@ -34,7 +29,6 @@ _VALUE_RANGES = {
 
 
 def _clamped(tag: str, value: str) -> str:
-    """유효 범위를 벗어난 값을 경계로 당긴다. 보정하면 경고 로그를 남긴다."""
     bounds = _VALUE_RANGES.get(tag)
     if not bounds:
         return value
@@ -51,12 +45,6 @@ def _clamped(tag: str, value: str) -> str:
 
 
 def build_xml(output_path: str, **overrides):
-    """config.ini 기반 + 오버라이드로 인쇄 설정 XML 생성.
-
-    각 XML 요소는 가먼트 CLI Command-line Tool 가이드 3-1-2 절 참조.
-    GTXpro는 byInk 값별 유효 요소가 나뉘므로, pro 대상에서는 공식 예제와
-    같은 조건부 요소만 출력한다.
-    """
 
     def _v(key, attr):
         return overrides.get(key, getattr(config, attr))
@@ -124,8 +112,6 @@ def build_xml(output_path: str, **overrides):
         ("bUniPrint", _b(_v("uni_print", "UNI_PRINT"))),
     ])
 
-    # legacy(GTX-4)는 가이드 §3-1-2 정의 순서(byInk→bEcoMode→byResolution)를 그대로
-    # 따른다. common_elements(byInk 뒤 byResolution)는 pro 전용 순서이므로 재사용하지 않는다.
     elements = [
         ("szFileName", ""),
         ("uiCopies", str(_v("copies", "COPIES"))),
@@ -158,8 +144,6 @@ def build_xml(output_path: str, **overrides):
     if is_pro:
         elements = pro_elements
 
-    # GTXpro XML spec does not define byMachineMode. Keep it only for legacy
-    # GTX-4 ARX4 generation, where the official guide requires the field.
     if not is_pro and overrides.get("include_machine_mode", True):
         elements.insert(2, ("byMachineMode", str(_v("machine_mode", "MACHINE_MODE"))))
 
