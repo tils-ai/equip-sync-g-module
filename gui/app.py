@@ -1,7 +1,3 @@
-"""WatcherApp — 단일 화면 (spec §1, §9). b-module 가먼트 전용 device label.
-
-기존 watcher.py / agent.py 도메인 로직은 그대로 사용.
-"""
 
 from __future__ import annotations
 
@@ -82,10 +78,10 @@ class WatcherApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=0)  # header
-        self.grid_rowconfigure(1, weight=0)  # 상단 스트립 (현황 + 컨트롤)
-        self.grid_rowconfigure(2, weight=1)  # 출력 대기 그리드 (메인)
-        self.grid_rowconfigure(3, weight=0)  # 하단 스트립 (최근 처리 + 로그)
+        self.grid_rowconfigure(0, weight=0)
+        self.grid_rowconfigure(1, weight=0)
+        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=0)
 
         self.header = Header(
             self,
@@ -97,12 +93,11 @@ class WatcherApp(ctk.CTk):
         self.header.grid(row=0, column=0, sticky="ew")
         self.header.set_pairing("connected" if config.API_KEY else "unpaired")
 
-        # ── 상단 스트립: 현황 카드(좌) + 운영 컨트롤(우) 한 줄 ──
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.grid(row=1, column=0, sticky="ew", padx=12, pady=(8, 4))
-        top.grid_columnconfigure(0, weight=0)               # 현황 — 자연 폭(고정)
-        top.grid_columnconfigure(1, weight=1)               # 스페이서 — 남는 폭 흡수
-        top.grid_columnconfigure(2, weight=0, minsize=300)  # 컨트롤 — 우측 고정 폭
+        top.grid_columnconfigure(0, weight=0)
+        top.grid_columnconfigure(1, weight=1)
+        top.grid_columnconfigure(2, weight=0, minsize=300)
 
         self.cards = StatusCards(top, on_error_click=lambda: _open_folder(config.ERROR_DIR))
         self.cards.grid(row=0, column=0, sticky="nw")
@@ -115,7 +110,6 @@ class WatcherApp(ctk.CTk):
         )
         self.control.grid(row=0, column=2, sticky="nse")
 
-        # ── 메인: 출력 대기 그리드 ──
         self.download_grid = DownloadGrid(
             self,
             on_print=self._on_print_clicked,
@@ -123,12 +117,11 @@ class WatcherApp(ctk.CTk):
         )
         self.download_grid.grid(row=2, column=0, sticky="nsew", padx=12, pady=4)
 
-        # ── 하단 스트립: 최근 처리(좌) + 로그(우) 한 줄 ──
         bottom = ctk.CTkFrame(self, fg_color="transparent", height=160)
         bottom.grid(row=3, column=0, sticky="ew", padx=12, pady=(4, 12))
-        bottom.grid_propagate(False)  # height 고정 — 메인 그리드가 세로를 가져가도록
-        bottom.grid_columnconfigure(0, weight=2)  # 최근 처리
-        bottom.grid_columnconfigure(1, weight=3)  # 로그
+        bottom.grid_propagate(False)
+        bottom.grid_columnconfigure(0, weight=2)
+        bottom.grid_columnconfigure(1, weight=3)
         bottom.grid_rowconfigure(0, weight=1)
 
         self.recent = RecentList(bottom)
@@ -145,12 +138,10 @@ class WatcherApp(ctk.CTk):
         self._tick()
         self._drain_log()
 
-    # ── 외부 인터랙션 ─────────────────────────────────
     def _open_settings(self) -> None:
         self.settings_panel.open()
 
     def _apply_settings_to_agent(self) -> None:
-        """설정 저장 직후 호출 — 실행 중인 agent의 출력 워커를 새 프린터 설정으로 재생성(재시작 불필요)."""
         if self._agent and self._agent_running:
             try:
                 self._agent.restart_print_workers()
@@ -166,7 +157,6 @@ class WatcherApp(ctk.CTk):
         if self._watcher_running:
             self._stop_watcher()
         else:
-            # 상호 배타 — 같은 INCOMING/DOWNLOAD 폴더를 둘이 동시에 잡으면 중복 처리됨
             if self._agent_running:
                 logger.info("Agent 가 실행 중이라 자동 정지 후 Watcher 를 시작합니다.")
                 self._stop_agent()
@@ -181,11 +171,8 @@ class WatcherApp(ctk.CTk):
                 self._stop_watcher()
             self._start_agent()
 
-    # ── 라이프사이클 ──────────────────────────────────
     def _start_services(self) -> None:
-        # 장비 상태 폴러는 agent/watcher 와 독립 — 항상 시작(내부에서 enabled 가드)
         self._start_device_poller()
-        # API 인증 정보가 있으면 Agent 모드 우선 (Watcher 와 폴더 충돌 방지)
         if config.API_KEY and config.API_TENANT:
             self._start_agent()
             return
@@ -193,7 +180,6 @@ class WatcherApp(ctk.CTk):
             self.control.set_agent(running=False, detail="미페어링 — Agent 시작 시 자동 인증", enabled=True)
         else:
             self.control.set_agent(running=False, detail="스토어 ID 미설정 — 설정 패널에서 입력", enabled=False)
-        # 인증 미설정 시에만 Watcher 자동 시작 (수동 드롭인 처리)
         self._start_watcher()
 
     def _start_watcher(self) -> None:
@@ -238,11 +224,9 @@ class WatcherApp(ctk.CTk):
             return
         try:
             self._agent = AgentWorker()
-            # 세션 카운터/최근 처리 목록 wiring — 없으면 카드/리스트가 영원히 0/빈 상태
             self._agent.on_done = lambda fn: self._on_agent_done(fn)
             self._agent.on_error = lambda fn: self._on_agent_error(fn)
             self._agent.on_downloaded = lambda fn: self._on_agent_downloaded(fn)
-            # 출력 큐 그리드 wiring — 콜백은 백그라운드 스레드에서 오므로 after(0) 로 메인 마샬링
             self._agent.on_ready = lambda it: self.after(0, lambda: self.download_grid.add_item(it))
             self._agent.on_printing = lambda iid, pr: self.after(0, lambda: self.download_grid.set_printing(iid, pr))
             self._agent.on_item_done = lambda iid: self.after(0, lambda: self.download_grid.set_done(iid))
@@ -269,21 +253,12 @@ class WatcherApp(ctk.CTk):
         self._push_recent(filename, "ok", "다운로드")
 
     def _on_print_clicked(self, item_id: str, ink: int) -> None:
-        """출력 대기 카드 흰옷(Color)/컬러옷(White+Color) 클릭 → Agent 출력 큐 투입."""
         if self._agent is None:
             return
         if not self._agent.print_ready(item_id, ink):
             logger.info("출력 투입 무시 : 이미 전송 중이거나 없는 항목 (%s)", item_id)
 
     def _on_delete_clicked(self, item_id: str, label: str, status: str = "ready") -> None:
-        """카드 [✕] 클릭 → 확인 모달 → 목록에서 삭제.
-
-        삭제는 서버 호출을 포함하므로 백그라운드 스레드에서 돌린다. 메인 스레드에서
-        하면 응답을 기다리는 동안 화면이 멈춘다.
-
-        완료 기록도 지울 수 있다. 출력이 끝난 건까지 쌓이면 목록이 가려 작업자가 지금 눌러야
-        할 카드를 찾기 어렵다.
-        """
         if self._agent is None:
             return
 
@@ -337,7 +312,6 @@ class WatcherApp(ctk.CTk):
             logger.exception("출력 대기 그리드 정리 실패")
         logger.info("agent 정지됨")
 
-    # ── 장비 상태 폴러 ─────────────────────────────────
     def _start_device_poller(self) -> None:
         if self._device_poller is not None:
             return
@@ -388,13 +362,10 @@ class WatcherApp(ctk.CTk):
             self.cards.set_device("초기화", "muted")
         elif state == "menu":
             self.cards.set_device("메뉴", "muted")
-        else:  # ready / standby / unknown
+        else:
             self.cards.set_device("대기", "muted")
 
-    # ── tick / log ──────────────────────────────────
     def _tick(self) -> None:
-        # 현황 카드 = 출력 큐 상태 버킷(그리드 탭과 동일 기준): 대기/처리중/완료/실패.
-        # 다운로드 진행 중이면 처리중에 합산. Agent OFF 면 INCOMING PDF 수만 가늠.
         if self._agent_running and self._agent is not None:
             counts = self._agent.status_counts()
             pending = counts["ready"]

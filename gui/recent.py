@@ -1,4 +1,3 @@
-"""RecentList — 최근 처리 5건 표시 (spec §6, ring buffer)."""
 
 from __future__ import annotations
 
@@ -19,7 +18,7 @@ _ICONS = {"ok": "✅", "warn": "⚠️", "error": "❌"}
 class ActivityItem:
     ts: float
     label: str
-    status: str  # "ok" | "warn" | "error"
+    status: str
     detail: str = ""
 
 

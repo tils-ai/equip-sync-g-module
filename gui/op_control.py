@@ -1,9 +1,3 @@
-"""OpControlBox — Agent + Watcher 운영 컨트롤 (상태 칩 + 버튼 위계).
-
-상단 스트립에서 현황 카드와 한 줄로 나란히. 상태는 점 단독이 아니라 옅은 tint 칩
-(실행 중=SUCCESS_SOFT, 정지=IDLE_SOFT)으로 글랜서블하게. 시작=주 액션(ACCENT),
-정지/폴더=보조(NEUTRAL_BTN) 로 위계 분리.
-"""
 
 from __future__ import annotations
 
@@ -18,7 +12,6 @@ from . import theme
 
 
 class _StatusChip(ctk.CTkFrame):
-    """[● 라벨: 상태] 옅은 tint 칩."""
 
     def __init__(self, parent, prefix: str) -> None:
         super().__init__(parent, corner_radius=theme.CORNER_SM, fg_color=theme.IDLE_SOFT)
@@ -59,9 +52,8 @@ class OpControlBox(ctk.CTkFrame):
                          border_width=theme.BORDER_W, border_color=theme.BORDER)
         self.grid_columnconfigure(0, weight=1)
 
-        _BTN_H = 40  # 보조 컨트롤 — 주 액션(출력 56)보다 작게, 컴팩트 유지
+        _BTN_H = 40
 
-        # Agent row
         self.agent_chip = _StatusChip(self, "Agent")
         self.agent_chip.grid(row=0, column=0, sticky="ew", padx=(theme.SP_3, theme.SP_2), pady=(theme.SP_2, theme.SP_1))
         self.agent_btn = ctk.CTkButton(
@@ -77,7 +69,6 @@ class OpControlBox(ctk.CTkFrame):
         )
         self.agent_btn.grid(row=0, column=1, columnspan=2, padx=(0, theme.SP_3), pady=(theme.SP_2, theme.SP_1), sticky="e")
 
-        # Watcher row
         self.watcher_chip = _StatusChip(self, "Watcher")
         self.watcher_chip.grid(row=1, column=0, sticky="ew", padx=(theme.SP_3, theme.SP_2), pady=(theme.SP_1, theme.SP_2))
         self.watcher_btn = ctk.CTkButton(
@@ -123,9 +114,8 @@ class OpControlBox(ctk.CTkFrame):
         self.watcher_btn.configure(text="정지" if running else "시작")
 
     def push_activity(self, summary: str) -> None:
-        # 마지막 활동 표시는 하단 "최근 처리" 리스트로 대체됨 — 상태만 보관.
         self._last_ts = time.time()
         self._last_summary = summary
 
     def tick(self) -> None:
-        """1초마다 호출 — 현재는 갱신할 상대 시각 라벨 없음 (no-op)."""
+        pass

@@ -1,21 +1,3 @@
-"""DownloadGrid — 출력 큐 카드 그리드 (대기/실패/완료 탭, 반응형 줄바꿈).
-
-폴더처럼 고정 크기 카드를 컨테이너 폭에 맞춰 줄바꿈 배치하고, 상단 세그먼트로
-상태 탭을 전환한다.
-  - 대기(ready): [출력] 클릭으로 장비 전송 (전송 중인 항목도 이 탭에서 표시)
-  - 실패(failed): [재시도] 클릭으로 재전송, 실패 사유 표시
-  - 완료(done): 전송완료 이력 (딤 처리, 출력 버튼 없음 · 삭제는 가능)
-
-카드 우측 상단의 [✕] 는 중복·오생성 디자인을 큐에서 걷어낸다. 예전에는 없애려면
-출력 버튼을 눌러 흘려보내야 했고 그때마다 작업지시서가 같이 인쇄돼 용지가 낭비됐다.
-전송 중(printing)에서만 숨긴다.
-
-설계: dps-store/docs/print/20260609-garment-worker-gated-print.md §5-2,
-      dps-store/docs/print/20260611-garment-client-gui-design.md
-콜백(on_ready/on_printing/on_item_done/on_item_failed/on_item_removed)은
-백그라운드 스레드에서 오므로, 호출부(gui/app.py)가 self.after(0, ...) 로
-메인 스레드 마샬링 후 이 위젯 메서드를 부른다.
-"""
 
 from __future__ import annotations
 
@@ -33,11 +15,10 @@ from . import theme
 logger = logging.getLogger(__name__)
 
 _THUMB_PX = 158
-_CARD_W = 186            # 카드 고정 폭 — 폭 기반 열 수 계산의 단위
-_CARD_PAD = 8            # 카드 좌우 패딩(각각)
+_CARD_W = 186
+_CARD_PAD = 8
 _CARD_TOTAL = _CARD_W + _CARD_PAD * 2
 
-# 잉크 모드 — 흰옷=Color only(0), 컬러옷=White+Color(2). config.INK 의 의미와 동일.
 INK_COLOR = 0
 INK_WHITE_COLOR = 2
 
@@ -45,7 +26,6 @@ _FILTERS = ["ready", "failed", "done"]
 _FILTER_LABELS = {"ready": "대기", "failed": "실패", "done": "완료"}
 _LABEL_TO_FILTER = {v: k for k, v in _FILTER_LABELS.items()}
 
-# 상태 강조 — 테두리색(SOLID) + 배경 tint(SOFT) + 텍스트/아이콘 3중.
 _STATUS_BORDER = {
     "ready": theme.BORDER,
     "printing": theme.PROGRESS,
@@ -60,16 +40,10 @@ _STATUS_BG = {
 }
 
 
-# 알파가 이 값 미만인 픽셀만 '배경'으로 보고 지운다. 128 처럼 크게 잡으면 도안 본체의
-# 반투명 그라데이션까지 "흰색 아니면 원색"으로 뭉개진다.
 _ALPHA_CUTOFF = 8
 
 
 def _flatten_to_white(img):
-    """RGBA 배경을 흰색(255,255,255)으로 합성한다. 알파 그라데이션은 그대로 살린다.
-
-    실제 출력 대상이 흰 의류라, 미리보기도 흰 바탕이어야 작업자가 보는 색이 맞다.
-    """
     from PIL import Image
 
     if img.mode != "RGBA":
@@ -81,13 +55,6 @@ def _flatten_to_white(img):
 
 
 def _make_thumb(path: str, size: int):
-    """디자인 PNG 를 PIL 썸네일로. 실패 시 None (placeholder 표시).
-
-    장비로 나가는 디자인은 PNG 뿐이므로(`_make_filename` 이 .png 로 고정) PIL 로 직접 연다.
-    출력 파이프라인(processor)에 기대지 않는다 — 예전에는 그쪽 함수를 빌려 썼는데,
-    출력에서 PNG 가공을 걷어낼 때 그 함수들이 함께 사라져 썸네일이 통째로
-    placeholder 로 떨어졌다(v1.14.3). 미리보기는 GUI 가 자립해서 만든다.
-    """
     try:
         from PIL import Image
 
@@ -96,13 +63,11 @@ def _make_thumb(path: str, size: int):
         img.thumbnail((size, size), Image.Resampling.LANCZOS)
         return img
     except Exception as e:
-        # debug 로 두면 조용히 사라진다 — v1.14.3 썸네일 장애가 로그에 안 남았던 이유.
         logger.warning("썸네일 생성 실패(%s): %s", os.path.basename(path), e)
         return None
 
 
 class DesignCard(ctk.CTkFrame):
-    """디자인 1건 카드 — 썸네일 + 이름 + 배지 + 상태별 버튼."""
 
     def __init__(
         self,
@@ -133,7 +98,6 @@ class DesignCard(ctk.CTkFrame):
         option = job.get("optionName") or ""
         self._has_work_order = bool(getattr(item, "do_work_order", False))
 
-        # 썸네일 박스 (placeholder → 백그라운드 로드 후 교체)
         self._thumb = ctk.CTkLabel(
             self,
             text="🖼",
@@ -146,7 +110,6 @@ class DesignCard(ctk.CTkFrame):
         )
         self._thumb.grid(row=0, column=0, padx=theme.SP_2, pady=(theme.SP_2, theme.SP_1), sticky="ew")
 
-        # 주문번호 + 순번
         seq = f"  #{idx}/{total}" if total and total > 1 else ""
         ctk.CTkLabel(
             self,
@@ -156,9 +119,7 @@ class DesignCard(ctk.CTkFrame):
             text_color=theme.TEXT,
         ).grid(row=1, column=0, padx=theme.SP_2, sticky="ew")
 
-        # 상품명 / 옵션
         sub = product + (f" · {option}" if option else "")
-        # 삭제 확인 모달에 무엇을 지우는지 보여주기 위한 라벨
         self._label = f"{order_number}{seq}" + (f"\n{sub}" if sub else "")
         ctk.CTkLabel(
             self,
@@ -170,7 +131,6 @@ class DesignCard(ctk.CTkFrame):
             text_color=theme.TEXT_SUB,
         ).grid(row=2, column=0, padx=theme.SP_2, sticky="ew")
 
-        # 배지 칩 — 정보성(지시서/수량)=ACCENT, 경고성(아동 플레이트)=WARNING. 배경 틴트로 칩화.
         badge_row = ctk.CTkFrame(self, fg_color="transparent", height=24)
         badge_row.grid(row=3, column=0, padx=theme.SP_2, pady=(theme.SP_1, 0), sticky="ew")
         chips = []
@@ -191,12 +151,10 @@ class DesignCard(ctk.CTkFrame):
                 corner_radius=theme.CORNER_SM,
             ).pack(side="left", padx=(0, theme.SP_1), ipadx=6, ipady=2)
 
-        # 액션 버튼 2개 — 흰옷(Color) / 컬러옷(White+Color). 옷 색에 따라 즉석 선택.
         self._btns = ctk.CTkFrame(self, fg_color="transparent")
         self._btns.grid(row=4, column=0, padx=theme.SP_2, pady=theme.SP_1, sticky="ew")
         self._btns.grid_columnconfigure((0, 1), weight=1, uniform="ink")
 
-        # width=10 으로 CTkButton 기본 폭(140)을 죽여 카드가 양옆으로 밀리지 않게 — 칸 폭에 맞춰 채움.
         _bfont = ctk.CTkFont(family=_font_family(), size=13, weight="bold")
         self._btn_white = ctk.CTkButton(
             self._btns,
@@ -225,8 +183,6 @@ class DesignCard(ctk.CTkFrame):
         )
         self._btn_color.grid(row=0, column=1, padx=(theme.SP_1, 0), sticky="ew")
 
-        # 삭제(X) — 카드 우측 상단. 중복·오생성 디자인을 출력 버튼으로 흘려보내지 않고 바로 걷어낸다.
-        # place 로 썸네일 위에 겹쳐 올려 카드 높이를 늘리지 않는다.
         self._btn_delete = ctk.CTkButton(
             self,
             text="✕",
@@ -241,7 +197,6 @@ class DesignCard(ctk.CTkFrame):
         )
         self._btn_delete.place(relx=1.0, x=-(theme.SP_2 + 2), y=theme.SP_2 + 2, anchor="ne")
 
-        # 상태 라벨 (전송 중/실패 사유/완료)
         self._status_lbl = ctk.CTkLabel(
             self,
             text="",
@@ -255,12 +210,9 @@ class DesignCard(ctk.CTkFrame):
         self._apply_status(self.status, getattr(item, "error_reason", "") or "")
         self._load_thumb_async(item.download_path)
 
-    # ── 그룹(탭) ──
     def group(self) -> str:
-        """필터 탭 그룹 — 전송 중(printing)은 대기 탭에서 표시."""
         return "ready" if self.status in ("ready", "printing") else self.status
 
-    # ── 썸네일 ──
     def _load_thumb_async(self, path: str) -> None:
         def worker():
             img = _make_thumb(path, _THUMB_PX)
@@ -277,7 +229,7 @@ class DesignCard(ctk.CTkFrame):
         try:
             ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
             self._thumb.configure(image=ctk_img, text="")
-            self._thumb.image = ctk_img  # 참조 유지 (GC 방지)
+            self._thumb.image = ctk_img
         except Exception:
             logger.debug("썸네일 표시 실패", exc_info=True)
 
@@ -288,11 +240,6 @@ class DesignCard(ctk.CTkFrame):
         self._on_delete(self.item_id, self._label, self.status)
 
     def _set_delete_visible(self, visible: bool) -> None:
-        """전송 중에만 숨긴다.
-
-        전송 중에 지우면 전송 결과를 반영할 대상이 사라진다. 그 외에는 대기·실패·완료 모두
-        지울 수 있다. 완료 기록도 쌓이면 목록을 가리므로 작업자가 직접 치울 수 있어야 한다.
-        """
         if visible:
             self._btn_delete.place(relx=1.0, x=-(theme.SP_2 + 2), y=theme.SP_2 + 2, anchor="ne")
         else:
@@ -302,7 +249,6 @@ class DesignCard(ctk.CTkFrame):
         self._btn_white.configure(state=state)
         self._btn_color.configure(state=state)
 
-    # ── 상태 전환 ──
     def _apply_status(self, status: str, reason: str = "") -> None:
         self.status = status
         self.configure(
@@ -313,22 +259,19 @@ class DesignCard(ctk.CTkFrame):
         if status == "ready":
             self._btns.grid()
             self._set_buttons("normal")
-            self._status_lbl.grid_remove()  # 사유 없음 — 빈 칸 차지 방지
+            self._status_lbl.grid_remove()
         elif status == "printing":
             self._btns.grid()
             self._set_buttons("disabled")
             self._status_lbl.grid()
             self._status_lbl.configure(text=reason or "⟳ 장비로 전송 중", text_color=theme.PROGRESS)
         elif status == "failed":
-            # 실패 시 두 버튼을 다시 살려 잉크를 골라 재시도.
             self._btns.grid()
             self._set_buttons("normal")
             self._status_lbl.grid()
             self._status_lbl.configure(text=f"실패 — {reason} · 잉크 선택 후 재시도" if reason else "전송 실패 · 재시도",
                                        text_color=theme.DANGER)
         elif status == "done":
-            # 완료 후에도 버튼을 살려 둔다. 장비가 못 받았거나 다시 뽑아야 할 때 카드를 지우고
-            # 관리자에서 재출력을 걸 필요 없이 여기서 바로 다시 보낼 수 있어야 한다.
             self._btns.grid()
             self._set_buttons("normal")
             self._status_lbl.grid()
@@ -346,7 +289,6 @@ class DesignCard(ctk.CTkFrame):
 
 
 class DownloadGrid(ctk.CTkFrame):
-    """상태 탭 + 반응형 카드 그리드 컨테이너."""
 
     def __init__(
         self,
@@ -365,7 +307,6 @@ class DownloadGrid(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
-        # ── 탭(세그먼트) + 카운트 요약 ──
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.grid(row=0, column=0, sticky="ew", padx=8, pady=(4, 0))
         bar.grid_columnconfigure(1, weight=1)
@@ -374,9 +315,9 @@ class DownloadGrid(ctk.CTkFrame):
             bar,
             values=[_FILTER_LABELS[f] for f in _FILTERS],
             command=self._on_tab_changed,
-            width=264,            # 3분할 → 칸당 ~88px, 라벨 좌우 여백 확보
+            width=264,
             height=38,
-            dynamic_resizing=False,  # 콘텐츠에 딱 맞게 줄지 않도록
+            dynamic_resizing=False,
             font=ctk.CTkFont(family=_font_family(), size=theme.FONT_BODY, weight="bold"),
             selected_color=theme.ACCENT,
             selected_hover_color=theme.ACCENT_HOVER,
@@ -395,10 +336,6 @@ class DownloadGrid(ctk.CTkFrame):
 
         self._scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self._scroll.grid(row=2, column=0, sticky="nsew", padx=4, pady=(4, 4))
-        # add="+" 가 없으면 CTkScrollableFrame 이 자기 <Configure> 에 걸어 둔 처리를 덮어쓴다.
-        # 그 처리가 스크롤 영역(scrollregion)을 내용 크기에 맞춰 갱신하는 일을 하므로,
-        # 덮어쓰면 **카드가 늘어나도 스크롤 범위가 그대로여서 아래로 내려가지 않는다.**
-        # 주문이 쌓였을 때만 드러나던 문제의 원인이다.
         self._scroll.bind("<Configure>", self._on_resize, add="+")
 
         self._empty = ctk.CTkLabel(
@@ -409,28 +346,14 @@ class DownloadGrid(ctk.CTkFrame):
         )
         self._reflow()
 
-    # ── 마우스 휠 ──
     def _bind_wheel(self, widget) -> None:
-        """카드와 그 자식들에 휠을 직접 묶는다.
-
-        `CTkScrollableFrame` 은 이벤트가 온 위젯이 자기 캔버스 자손인지 따져 스크롤할지
-        정하는데, 카드처럼 여러 겹으로 중첩된 위젯에서는 그 판별이 어긋나 휠이 무시된다.
-        **주문이 쌓여 카드가 화면을 덮으면 커서가 늘 카드 위에 있게 되어 스크롤이 아예
-        안 되는 것처럼 보인다.** 카드가 몇 개 없을 때는 빈 여백에 커서를 두면 굴러가서
-        문제가 드러나지 않았다.
-
-        카드를 만들 때 한 번만 묶는다. 썸네일은 기존 라벨의 이미지를 바꿀 뿐 위젯을 새로
-        만들지 않으므로 나중에 다시 묶을 필요가 없다.
-        """
         widget.bind("<MouseWheel>", self._on_wheel, add="+")
-        # X11(리눅스)은 휠을 Button-4/5 로 보낸다
         widget.bind("<Button-4>", self._on_wheel, add="+")
         widget.bind("<Button-5>", self._on_wheel, add="+")
         for child in widget.winfo_children():
             self._bind_wheel(child)
 
     def _on_wheel(self, event):
-        """휠 이벤트를 스크롤 캔버스로 넘긴다. `break` 로 기본 처리를 막아 두 번 굴러가지 않게 한다."""
         canvas = getattr(self._scroll, "_parent_canvas", None)
         if canvas is None:
             return None
@@ -441,14 +364,12 @@ class DownloadGrid(ctk.CTkFrame):
         elif num == 5:
             delta = 1
         else:
-            # 윈도우는 120 단위로 온다. 한 번에 여러 칸 굴린 경우도 반영한다
             step = -1 if event.delta > 0 else 1
             delta = step * max(1, abs(int(event.delta / 120)))
 
         canvas.yview_scroll(delta, "units")
         return "break"
 
-    # ── 공개 API (메인 스레드에서 호출) ──
     def add_item(self, item) -> None:
         item_id = getattr(item, "id", "")
         if not item_id or item_id in self._cards:
@@ -492,7 +413,6 @@ class DownloadGrid(ctk.CTkFrame):
         self._order.clear()
         self._reflow()
 
-    # ── 내부 ──
     def _on_tab_changed(self, label: str) -> None:
         self._filter = _LABEL_TO_FILTER.get(label, "ready")
         self._reflow()
@@ -514,7 +434,6 @@ class DownloadGrid(ctk.CTkFrame):
         visible = [iid for iid in self._order if self._cards[iid].group() == self._filter]
         visible_set = set(visible)
 
-        # 비표시 카드는 숨김
         for iid, card in self._cards.items():
             if iid not in visible_set:
                 card.grid_remove()
@@ -522,14 +441,13 @@ class DownloadGrid(ctk.CTkFrame):
         cols = max(1, self._cols)
         for idx, iid in enumerate(visible):
             self._cards[iid].grid(
-                row=idx // cols + 1,  # row 0 은 empty 라벨 자리
+                row=idx // cols + 1,
                 column=idx % cols,
                 padx=_CARD_PAD,
                 pady=_CARD_PAD,
                 sticky="n",
             )
 
-        # 카운트 요약 + 빈 상태
         self._summary.configure(
             text=f"대기 {counts['ready']} · 실패 {counts['failed']} · 완료 {counts['done']}"
         )

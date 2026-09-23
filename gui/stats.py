@@ -1,4 +1,3 @@
-"""세션 누적 카운터 — 앱 시작 시 0으로 시작, 종료/재시작 시 리셋."""
 
 from __future__ import annotations
 

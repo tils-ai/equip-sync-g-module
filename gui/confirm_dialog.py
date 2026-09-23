@@ -1,9 +1,3 @@
-"""ConfirmDialog — 되돌릴 수 없는 동작 앞에 세우는 확인 모달.
-
-customtkinter 에 확인 대화상자가 없어 CTkToplevel 로 직접 만든다.
-tkinter.messagebox 를 쓰지 않는 이유는 OS 기본 위젯이라 앱 테마와 따로 놀고,
-한글 폰트가 등록된 프로세스 폰트를 타지 않기 때문이다.
-"""
 
 from __future__ import annotations
 
@@ -15,7 +9,6 @@ from . import theme
 
 
 class ConfirmDialog(ctk.CTkToplevel):
-    """예/아니오 확인 모달. `ask()` 로 띄우고 bool 을 받는다."""
 
     def __init__(
         self,
@@ -97,7 +90,6 @@ class ConfirmDialog(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self._cancel)
 
         self._center_on(parent)
-        # transient/grab 은 창이 그려진 뒤에 걸어야 일부 WM 에서 무시되지 않는다
         self.after(10, lambda: self._make_modal(confirm))
 
     def _make_modal(self, focus_widget) -> None:

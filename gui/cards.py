@@ -1,9 +1,3 @@
-"""StatusCards — 한 줄 5개 카드: 대기/처리중/완료/오류/장비.
-
-현장 글랜서빌리티: 봐야 할 카드가 색으로 떠오르게 — 오류>0 = DANGER tint,
-대기>0 = ACCENT tint, 장비 상태 = tone별 tint + 아이콘.
-상단 스트립이 컴팩트해야 하므로 숫자는 22(문서 권고 34에서 절충).
-"""
 
 from __future__ import annotations
 
@@ -33,7 +27,6 @@ class StatusCards(ctk.CTkFrame):
         super().__init__(parent, fg_color="transparent")
         self._on_error_click = on_error_click
 
-        # 숫자 카드는 좁게 고정(좌우 여백 확보), 장비 카드만 텍스트라 넓게.
         _MINW = {"pending": 88, "processing": 88, "done": 88, "error": 88, "device": 150}
 
         self._values: dict[str, ctk.CTkLabel] = {}
@@ -60,7 +53,6 @@ class StatusCards(ctk.CTkFrame):
                 text_color=theme.TEXT_MUTED,
             ).pack(padx=theme.SP_3, pady=(theme.SP_2, 0))
 
-            # 장비 카드는 텍스트 상태라 숫자 카드보다 작은 폰트, 기본 "-"
             is_device = key == "device"
             value = ctk.CTkLabel(
                 card,
@@ -86,14 +78,12 @@ class StatusCards(ctk.CTkFrame):
         self._values["done"].configure(text=str(done))
         self._values["error"].configure(text=str(error))
 
-        # 봐야 할 카드를 tint 로 부각 — 오류>0 = DANGER, 대기>0 = ACCENT.
         self._values["error"].configure(text_color=theme.DANGER if error > 0 else theme.TEXT)
         self._frames["error"].configure(fg_color=theme.DANGER_SOFT if error > 0 else theme.SURFACE)
         self._values["pending"].configure(text_color=theme.ACCENT if pending > 0 else theme.TEXT)
         self._frames["pending"].configure(fg_color=theme.ACCENT_SOFT if pending > 0 else theme.SURFACE)
 
     def set_device(self, text: str, tone: str = "muted") -> None:
-        """장비 상태 카드 갱신. tone: active/danger/muted — tint 배경 + 아이콘 + 색."""
         icon = _DEVICE_ICON.get(tone, "●")
         self._values["device"].configure(
             text=f"{icon} {text}",

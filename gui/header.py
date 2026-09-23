@@ -1,4 +1,3 @@
-"""Header — 장비명 + 페어링 상태(칩) + 설정/테마(보조 액션)."""
 
 from __future__ import annotations
 
@@ -38,7 +37,6 @@ class Header(ctk.CTkFrame):
             text_color=theme.TEXT,
         ).grid(row=0, column=0, padx=theme.SP_3, pady=theme.SP_3, sticky="w")
 
-        # 페어링 상태 칩 (점 + 텍스트 + tint 배경)
         self._pair_chip = ctk.CTkFrame(self, corner_radius=theme.CORNER_SM, fg_color=theme.IDLE_SOFT)
         self._pair_chip.grid(row=0, column=1, sticky="e", padx=(0, theme.SP_2))
         self._pair_dot = ctk.CTkLabel(
@@ -85,7 +83,6 @@ class Header(ctk.CTkFrame):
         self.theme_menu.grid(row=0, column=3, padx=(0, theme.SP_3))
 
     def set_pairing(self, state: str) -> None:
-        """state: 'connected' | 'unpaired' | 'error'"""
         icon, text, fg, soft = _PAIR.get(state, _PAIR["unpaired"])
         self._pair_chip.configure(fg_color=soft)
         self._pair_dot.configure(text=icon, text_color=fg)

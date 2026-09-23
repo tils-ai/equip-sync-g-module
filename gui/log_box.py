@@ -1,4 +1,3 @@
-"""LogBox — rotating 로그 표시 + 자동 스크롤 (spec §7)."""
 
 from __future__ import annotations
 
@@ -50,7 +49,6 @@ class LogBox(ctk.CTkTextbox):
 
 
 def attach_logging(log_queue: queue.Queue) -> None:
-    """루트 로거에 큐 핸들러를 추가 — main의 setup_logging 이후 호출."""
     handler = _QueueHandler(log_queue)
     handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S"))
     logging.getLogger().addHandler(handler)
