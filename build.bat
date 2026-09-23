@@ -1,6 +1,5 @@
 @echo off
 pip install -r requirements.txt
-REM 가명 자산(vendor/) → 임시 .source/ 로 복원 (원본 이름 매핑은 vendor\.dll_manifest, 미추적)
 python scripts\restore_vendor.py || exit /b 1
 pyinstaller --onefile --windowed ^
     --hidden-import=win32print ^

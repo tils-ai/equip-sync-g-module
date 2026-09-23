@@ -27,8 +27,6 @@ jobs:
         id: poppler
         shell: pwsh
         run: |
-          # MSYS2(pacman) keyring 이 러너 이미지에서 깨져 다운로드 실패하므로,
-          # 사전 빌드된 poppler-windows 바이너리(자체완결 Library/bin)를 직접 받는다.
           $ver = "24.08.0-0"
           $url = "https://github.com/oschwartz10612/poppler-windows/releases/download/v$ver/Release-$ver.zip"
           Invoke-WebRequest -Uri $url -OutFile poppler.zip
@@ -41,8 +39,6 @@ jobs:
           $popplerBin = $pdftoppm.Directory.FullName
           echo "bin=$popplerBin" >> $env:GITHUB_OUTPUT
 
-      # 원본 라이브러리 이름은 .lib 의 PE export 에서 읽는다. 주입할 secret 이 없다.
-      # secret DLL_MANIFEST 가 남아 있으면 오버라이드로만 쓰인다(없는 것이 정상).
       - name: Restore vendor assets
         shell: pwsh
         env:
