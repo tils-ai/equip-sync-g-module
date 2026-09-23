@@ -1,4 +1,3 @@
-"""Device Auth: 브라우저 인증으로 API 키 발급."""
 
 import logging
 import time
@@ -10,8 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 def authenticate(base_url: str, tenant: str) -> str:
-    """인증 플로우 실행. 성공 시 API 키 반환."""
-    # 1. 인증 요청
     resp = requests.post(
         f"{base_url}/api/printer/auth/request",
         json={"tenant": tenant, "type": "garment"},
@@ -20,7 +17,6 @@ def authenticate(base_url: str, tenant: str) -> str:
     resp.raise_for_status()
     data = resp.json()
 
-    # 2. URL 표시 + 브라우저 오픈
     verify_url = data["verifyUrl"]
     user_code = data["userCode"]
     expires_in = data["expiresIn"]
@@ -30,7 +26,6 @@ def authenticate(base_url: str, tenant: str) -> str:
     logger.info("인증 코드: %s (%d분 내 완료)", user_code, expires_in // 60)
     webbrowser.open(verify_url)
 
-    # 3. 폴링
     device_code = data["deviceCode"]
     deadline = time.time() + expires_in
     while time.time() < deadline:

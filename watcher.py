@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 class PDFFileHandler(FileSystemEventHandler):
-    """감시 폴더에 PDF 파일이 생성되면 처리한다."""
 
     def __init__(self):
         super().__init__()
@@ -21,7 +20,6 @@ class PDFFileHandler(FileSystemEventHandler):
         self._lock = threading.Lock()
 
     def _handle_file(self, file_path: str):
-        # 장비로 나가는 것은 PNG 뿐이다. 다른 형식은 집어도 전송 단계에서 실패한다
         ext = os.path.splitext(file_path)[1].lower()
         if ext != ".png":
             return
@@ -41,7 +39,6 @@ class PDFFileHandler(FileSystemEventHandler):
         self._handle_file(event.src_path)
 
     def on_moved(self, event):
-        """Windows에서 파일 복사 시 임시파일 → 최종파일로 rename되는 경우 처리."""
         if event.is_directory:
             return
         self._handle_file(event.dest_path)
@@ -60,7 +57,6 @@ class PDFFileHandler(FileSystemEventHandler):
 
     @staticmethod
     def _wait_for_stable(file_path: str, timeout: float = 30.0) -> bool:
-        """파일 크기가 안정될 때까지 대기."""
         interval = config.FILE_STABLE_CHECK_INTERVAL
         required = config.FILE_STABLE_CHECK_COUNT
         stable = 0
@@ -92,7 +88,6 @@ class PDFFileHandler(FileSystemEventHandler):
 
 
 def start_watching():
-    """폴더 감시 시작, Observer 반환."""
     os.makedirs(config.INCOMING_DIR, exist_ok=True)
     observer = Observer()
     observer.schedule(PDFFileHandler(), config.INCOMING_DIR, recursive=False)

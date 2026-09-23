@@ -1,4 +1,3 @@
-"""dps-store 가먼트 프린터 API 클라이언트."""
 
 import logging
 
@@ -22,12 +21,6 @@ class GarmentApiClient:
         garment_enabled: bool = True,
         work_order_enabled: bool = True,
     ) -> dict:
-        """미출력 가먼트 큐 조회.
-
-        garment_enabled / work_order_enabled — 클라이언트의 capability.
-        서버는 capable 한 sub 만 OR 조건/선점 대상으로 사용하므로,
-        예: work_order_enabled=False 인 PC 가 work_order 만 PENDING 인 큐에 묶여 무한 루프 도는 문제를 차단.
-        """
         resp = self.session.get(
             f"{self.base_url}/api/printer/garment",
             params={
@@ -42,11 +35,6 @@ class GarmentApiClient:
         return resp.json()
 
     def mark_downloaded(self, job_id: str, target: str):
-        """PC 다운로드 완료 보고 (DOWNLOADING → READY). target: "garment" | "workOrder".
-
-        작업자 수동 전송 워크플로우 — 로컬에 디자인을 받아둔 시점에 호출.
-        장비 전송은 작업자 [출력] 클릭 시 mark_printed 로 보고.
-        """
         resp = self.session.post(
             f"{self.base_url}/api/printer/garment/{job_id}/downloaded",
             json={"target": target},
@@ -55,7 +43,6 @@ class GarmentApiClient:
         resp.raise_for_status()
 
     def mark_printed(self, job_id: str, target: str):
-        """장비 전송완료 보고 (→ SENT). target: "garment" | "workOrder"."""
         resp = self.session.post(
             f"{self.base_url}/api/printer/garment/{job_id}/printed",
             json={"target": target},
@@ -64,10 +51,6 @@ class GarmentApiClient:
         resp.raise_for_status()
 
     def delete_job(self, job_id: str) -> dict:
-        """큐 1건 삭제 — 중복·오생성 디자인을 작업자가 큐에서 걷어낼 때.
-
-        복구 기능은 없다. 잘못 지웠으면 관리자 주문 관리의 재출력으로 다시 넣는다.
-        """
         resp = self.session.delete(
             f"{self.base_url}/api/printer/garment/{job_id}",
             timeout=10,
@@ -76,7 +59,6 @@ class GarmentApiClient:
         return resp.json()
 
     def mark_failed(self, job_id: str, target: str, reason: str = ""):
-        """출력 실패 보고. target: "garment" | "workOrder"."""
         body = {"target": target}
         if reason:
             body["reason"] = reason
