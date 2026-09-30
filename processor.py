@@ -98,6 +98,9 @@ def _print_via_cli(
         if ink is not None:
             xml_overrides["ink"] = int(ink)
             logger.info("  잉크 모드 오버라이드: %s", "Color+White(컬러옷)" if int(ink) == 2 else f"ink={ink}")
+        effective_ink = int(ink) if ink is not None else int(config.INK)
+        white_as = 1 if effective_ink == 2 else config.WHITE_AS
+        logger.info("  순백 해석: -W %s (%s)", white_as, "화이트 잉크" if white_as == 1 else "투명")
         build_xml(
             xml_path,
             platen_size=platen_idx,
@@ -150,7 +153,7 @@ def _print_via_cli(
         rc = create_arx4(
             xml_path, png_path, arx4_path,
             position=position,
-            size=size, magnification=magnification, white=config.WHITE_AS,
+            size=size, magnification=magnification, white=white_as,
             printer_name=printer_name,
             option_overrides={**xml_overrides, "platen_size": platen_idx},
         )
